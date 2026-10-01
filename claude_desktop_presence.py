@@ -48,7 +48,7 @@ ELLIPSIS = {"thinking", "coding", "compacting"}
 STATUS_DISPLAY = {"name": 0, "state": 1, "details": 2}
 
 DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words": "words.txt", "hide": "hide.txt",
-            "status_display": "name", "title_no_chat": "Main menu", "title_cloud": "Cloud session",
+            "status_display": "name", "state_icons": False, "buttons": [], "title_no_chat": "Main menu", "title_cloud": "Cloud session",
             "title_private": "Private session", "title_untitled": "Untitled"}
 
 
@@ -478,8 +478,14 @@ class Presence:
         activity = {"details": clip(title), "state": clip(decorate(word, shown)),
                     "timestamps": {"start": start * 1000},
                     "assets": {"large_image": conf["image"], "large_text": clip(conf["image_text"])}}
+        if conf["state_icons"]:
+            activity["assets"]["small_image"] = kind    # ключ в Art Assets = имя состояния, см. docs/icons
         if STATUS_DISPLAY.get(conf["status_display"]):
             activity["status_display_type"] = STATUS_DISPLAY[conf["status_display"]]
+        buttons = [{"label": str(b["label"])[:32], "url": str(b["url"])} for b in conf["buttons"][:2]
+                   if isinstance(b, dict) and b.get("label") and str(b.get("url", "")).startswith("https://")]
+        if buttons:
+            activity["buttons"] = buttons
         return activity, shown
 
 

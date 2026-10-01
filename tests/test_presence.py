@@ -166,10 +166,10 @@ class Registry(Sandbox):
 class Card(Sandbox):
     """Presence.build целиком, с подменёнными источниками."""
 
-    def build(self, reg, kind="thinking", words="[думает]\nДумает\n[разрешение]\nDo you believe?\n"):
+    def build(self, reg, kind="thinking", words="[думает]\nДумает\n[разрешение]\nDo you believe?\n", **conf):
         with open(self.dir.name + "/words.txt", "w") as fh:
             fh.write(words)
-        conf = dict(p.DEFAULTS, client_id="1")
+        conf = dict(p.DEFAULTS, client_id="1", **conf)
         with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0 - 3600,
                                  active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
                                  registry=lambda: reg, status=lambda cli, now, busy=False: (kind, T0)):
@@ -188,6 +188,15 @@ class Card(Sandbox):
         self.assertEqual(activity["state"], "Думает…")
         self.assertEqual(activity["timestamps"]["start"], (T0 - 3600) * 1000)
         self.assertNotIn("status_display_type", activity)
+
+
+    def test_icons_buttons_display(self):
+        activity, _ = self.build({}, state_icons=True, status_display="state",
+                                 buttons=[{"label": "GitHub", "url": "https://github.com/x"},
+                                          {"label": "bad", "url": "javascript:1"}])
+        self.assertEqual(activity["assets"]["small_image"], "thinking")
+        self.assertEqual(activity["status_display_type"], 1)
+        self.assertEqual(activity["buttons"], [{"label": "GitHub", "url": "https://github.com/x"}])
 
 
 class Focus(Sandbox):

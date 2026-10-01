@@ -45,6 +45,12 @@ Everything lives in `~/.config/claude-desktop-presence/`:
 | `words.txt` | phrases and easter eggs, re-read on the fly |
 | `hide.txt` | parts of chat titles to hide |
 
+`config.toml` also has a few optional settings:
+
+- `status_display = "state"`: the server member list shows the phrase under your name instead of the app name.
+- `state_icons = true`: a small state icon in the corner of the image. Ready-made icons are in [docs/icons](docs/icons); upload them to Art Assets with the file names as keys.
+- `buttons`: up to two link buttons. Discord hides them from you; other people see them.
+
 Restart the service after editing `config.toml`: `systemctl --user restart claude-desktop-presence`. Log: `journalctl --user -u claude-desktop-presence -f`.
 
 ## Easter eggs
@@ -199,4 +205,4 @@ The human decided what to show and when, came up with the easter eggs, tested ev
 
 ## License
 
-[MIT](LICENSE). Unofficial project, not affiliated with Anthropic. Claude and Anthropic are trademarks of Anthropic, PBC.
+[MIT](LICENSE). State icons are made from [Material Design Icons](https://github.com/Templarian/MaterialDesign) (Apache 2.0). Unofficial project, not affiliated with Anthropic. Claude and Anthropic are trademarks of Anthropic, PBC.

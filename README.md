@@ -45,6 +45,12 @@
 | `words.txt` | фразы и пасхалки, перечитываются на лету |
 | `hide.txt` | части названий чатов, которые надо скрыть |
 
+В `config.toml` есть и необязательное:
+
+- `status_display = "state"`: в списке участников сервера под ником будет фраза, а не имя приложения.
+- `state_icons = true`: маленький значок состояния в углу картинки. Готовые значки лежат в [docs/icons](docs/icons), их надо загрузить в Art Assets с ключами по именам файлов.
+- `buttons`: до двух кнопок со ссылками. Себе Discord их не показывает, их видят другие.
+
 После правки `config.toml` перезапусти службу: `systemctl --user restart claude-desktop-presence`. Лог: `journalctl --user -u claude-desktop-presence -f`.
 
 ## Пасхалки
@@ -199,4 +205,4 @@ python3 -m unittest discover -s tests -v
 
 ## Лицензия
 
-[MIT](LICENSE). Неофициальный проект, с Anthropic не связан. Claude и Anthropic являются товарными знаками Anthropic, PBC.
+[MIT](LICENSE). Значки состояний сделаны из [Material Design Icons](https://github.com/Templarian/MaterialDesign) (Apache 2.0). Неофициальный проект, с Anthropic не связан. Claude и Anthropic являются товарными знаками Anthropic, PBC.
