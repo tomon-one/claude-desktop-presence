@@ -1,0 +1,74 @@
+# Second line of the Discord card. Sections are states, one phrase per line.
+# States: thinking, coding (editing files), done (30 s after a reply), waiting,
+# choice (asked a multiple-choice question), nochat (no chat open), event, error, compacting (needs the PreCompact hook).
+# Easter egg with a condition: "phrase @condition". Conditions:
+#   @night         — joins the pool from 23:00 to 05:00
+#   @03:45         — only during that minute, instead of the others
+#   @longer 5      — state lasts longer than 5 minutes; alternates with the regular ones (largest threshold wins)
+#   @morning       — first wait of the morning (05–12); alternates with the regular ones
+#   @chance 25     — 25 % chance on entering the state; alternates with the regular ones
+#   @launch        — [event]: first minute after Claude Desktop starts
+#   @switch 15     — [event]: 15 % chance on switching chats, for a minute
+# The phrase changes every 30 s and on every state/chat change. "…" is added to thinking/coding/compacting.
+# The file is re-read on the fly.
+
+[thinking]
+Thinking
+Generating
+Seems hard
+I figured out
+Great Divide
+Becoming human
+Software instability ▲
+Looking for the light
+Digging straight down
+Looking for gas
+Long gone before daylight @night
+03:45: No Sleep @03:45
+Overloaded @longer 5
+Cyberpsychosis creeping in @longer 15
+
+[coding]
+Investigating like Kovacs
+Push B non stop
+
+[done]
+Done
+Breathtaking @chance 25
+
+[waiting]
+Waiting for a reply
+Hanging around
+Never fade away
+Are you here? Give us a sign
+Hotel Hendrix awaits guests
+Night City @night
+Wants to go to the Moon @night
+Waiting 5:08 without pressing anything @05:08
+Wake up, Samurai @longer 30
+Waiting like Vice City waits for GTA VI @longer 60
+Rise & shine @morning
+
+[choice]
+Red pill or blue pill?
+
+[nochat]
+In the lobby
+Press any key
+Waiting for player 2
+Roaming Night City @night
+
+[event]
+Ready or not? @launch
+Ready or not? @switch 15
+
+[error]
+Black Letter Day
+Wasted
+Never Recover
+
+[compacting]
+Compressed, not defeated
+New sleeve, stack intact
+Eco round, saving for an AWP
+Erase/Rewind

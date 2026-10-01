@@ -1,0 +1,18 @@
+# ~/.config/claude-desktop-presence/config.toml
+
+# Application ID приложения Discord (discord.com/developers/applications → General Information).
+# Его имя показывается в карточке после «Играет в».
+client_id = ""
+
+# Ключ картинки из Rich Presence → Art Assets того же приложения и подпись к ней.
+image = "claude"
+image_text = "Claude"
+
+# Файлы рядом с этим: слова для второй строки и подстроки названий чатов, которые скрывать.
+words = "words.txt"
+hide = "hide.txt"
+
+# Первая строка карточки в особых случаях.
+title_no_chat = "Главное меню"
+title_private = "Приватная сессия"
+title_untitled = "Без названия"
