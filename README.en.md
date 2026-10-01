@@ -9,7 +9,7 @@ A Discord card for Claude Desktop on Linux. It shows which chat is open and what
 ![The card in a Discord profile](docs/card.png)
 
 - **First line:** the title of the open chat, or "Main menu" when none is selected.
-- **Second line:** what Claude is doing. Thinking, editing files, asking a multiple-choice question, just replied, waiting, hit an error or compacting the context. Every state has its own set of phrases.
+- **Second line:** what Claude is doing. Thinking, editing files, asking a multiple-choice question, waiting for permission to run a tool, just replied, waiting, hit an error or compacting the context. Every state has its own set of phrases.
 - **Timer:** how long Claude Desktop has been open. Switching chats doesn't reset it.
 
 It is a single Python file with no dependencies. It talks to Discord directly over the local socket.
@@ -119,6 +119,15 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Red pill or blue pill? | always | the film The Matrix |
 
+**Waiting for permission to run a tool**
+
+| phrase | when | reference |
+|---|---|---|
+| Do you believe? | always | The Cardigans, "Do You Believe" (Gran Turismo) |
+| If there is a chance | always | The Cardigans, "If There Is a Chance" (Long Gone Before Daylight) |
+| Asking for a drop | always | Counter-Strike 2, asking a teammate to drop a weapon |
+| Awaiting orders | always | Detroit: Become Human, androids awaiting instructions |
+
 **No chat selected**
 
 | phrase | when | reference |
@@ -159,7 +168,7 @@ The card is visible to everyone Discord shows your activity to: friends and memb
 ## How it works
 
 - **Open chat.** Claude Desktop writes a `setFocusedSession` line to `~/.config/Claude/logs/main.log` on every switch. If it stays `null` for over 5 seconds, no chat is selected. Titles come from `~/.config/Claude/claude-code-sessions/`.
-- **State.** The script reads the end of the session transcript `~/.claude/projects/*/<id>.jsonl`. Reply finished: waiting. Last tool is `Edit` or `Write`: editing files. `AskUserQuestion`: a multiple-choice question. API error: error. Otherwise thinking. Background task notifications and local commands don't count as a new turn.
+- **State.** The script reads the end of the session transcript `~/.claude/projects/*/<id>.jsonl`. Reply finished: waiting. Last tool is `Edit` or `Write`: editing files. `AskUserQuestion`: a multiple-choice question. API error: error. Otherwise thinking. Background task notifications and local commands don't count as a new turn. Permission prompts and long-running tools are read from Claude Code's own session file `~/.claude/sessions/<pid>.json`, which says whether the session is busy or waiting for something.
 - **Discord.** The card is sent with `SET_ACTIVITY` over `$XDG_RUNTIME_DIR/discord-ipc-N`. It polls every 4 seconds and sends only changes. If Discord is closed, the pause between attempts grows up to a minute.
 
 Claude Desktop and Claude Code don't promise to keep these files the same, so an update may break something. If the card acts strange, check the service log first.

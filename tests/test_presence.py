@@ -138,6 +138,58 @@ class Status(Sandbox):
             p.hook()
 
 
+class Registry(Sandbox):
+    def entry(self, pid, host, status, start="100", at=1, **kw):
+        os.makedirs(f"{self.dir.name}/sessions-reg", exist_ok=True)
+        with open(f"{self.dir.name}/sessions-reg/{pid}.json", "w") as fh:
+            json.dump({"pid": pid, "hostSessionId": host, "status": status, "procStart": start,
+                       "statusUpdatedAt": at, **kw}, fh)
+
+    def test_live_processes_only(self):
+        self.entry(1, "local_a", "waiting", waitingFor="permission prompt")
+        self.entry(2, "local_b", "busy")                 # pid занят другим процессом
+        self.entry(3, "local_c", "busy", start="999")    # pid переиспользован
+        self.entry(4, "local_a", "idle", at=0)           # старая запись того же чата
+        names = {1: "claude", 2: "bash", 3: "claude", 4: "claude"}
+        with mock.patch.multiple(p, REGISTRY=self.dir.name + "/sessions-reg/*.json",
+                                 proc_name=lambda pid: names[pid], proc_start=lambda pid: 100):
+            reg = p.registry()
+        self.assertEqual(set(reg), {"local_a"})
+        self.assertEqual(reg["local_a"]["waitingFor"], "permission prompt")
+
+    def test_busy_registry_overrides_stale_journal(self):
+        self.journal(user("x"), assistant(tool("Bash"), "tool_use"))
+        self.assertEqual(p.status("s1", T0 + p.STALE + 60)[0], "waiting")
+        self.assertEqual(p.status("s1", T0 + p.STALE + 60, busy=True)[0], "thinking")
+
+
+class Card(Sandbox):
+    """Presence.build целиком, с подменёнными источниками."""
+
+    def build(self, reg, kind="thinking", words="[думает]\nДумает\n[разрешение]\nDo you believe?\n"):
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write(words)
+        conf = dict(p.DEFAULTS, client_id="1")
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0 - 3600,
+                                 active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
+                                 registry=lambda: reg, status=lambda cli, now, busy=False: (kind, T0)):
+            return p.Presence(conf).build(T0 + 100)
+
+    def test_permission_from_registry(self):
+        activity, kind = self.build({"local_a": {"status": "waiting", "waitingFor": "permission prompt"}})
+        self.assertEqual((kind, activity["state"], activity["details"]), ("permission", "Do you believe?", "Чат"))
+
+    def test_other_waiting_reasons_are_not_permission(self):
+        _, kind = self.build({"local_a": {"status": "waiting", "waitingFor": "input needed"}})
+        self.assertEqual(kind, "thinking")
+
+    def test_card_fields(self):
+        activity, _ = self.build({})
+        self.assertEqual(activity["state"], "Думает…")
+        self.assertEqual(activity["timestamps"]["start"], (T0 - 3600) * 1000)
+        self.assertNotIn("status_display_type", activity)
+
+
 class Focus(Sandbox):
     def log(self, *ids, at="2026-10-01 21:00:53", name="main.log"):
         with open(f"{self.dir.name}/logs/{name}", "w") as fh:

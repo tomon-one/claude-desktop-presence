@@ -13,7 +13,9 @@ STATE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", HOME + "/.cache"), "cl
 DESKTOP = HOME + "/.config/Claude"
 SESSIONS = DESKTOP + "/claude-code-sessions/*/*/local_*.json"
 DESKTOP_LOGS = [DESKTOP + "/logs/main.log", DESKTOP + "/logs/main1.log"]   # второй — после ротации
-TRANSCRIPTS = os.environ.get("CLAUDE_CONFIG_DIR", HOME + "/.claude") + "/projects/*/{}.jsonl"
+CLAUDE_HOME = os.environ.get("CLAUDE_CONFIG_DIR", HOME + "/.claude")
+TRANSCRIPTS = CLAUDE_HOME + "/projects/*/{}.jsonl"
+REGISTRY = CLAUDE_HOME + "/sessions/*.json"     # Claude Code: pid → status, waitingFor
 
 # секунды
 POLL = 4
@@ -30,14 +32,17 @@ NIGHT = (23, 5)
 MORNING = (5, 12)
 CODE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 ASK_TOOLS = {"AskUserQuestion"}
+PERMISSION = {"permission prompt", "sandbox request"}     # значения waitingFor в реестре
 EX_CONFIG = 78      # ошибка в настройках — systemd не перезапускает (RestartPreventExitStatus)
 
 # words.txt: русские имена разделов и условий → внутренние
-SECTIONS = {"думает": "thinking", "код": "coding", "выбор": "choice", "готово": "done", "ждёт": "waiting",
+SECTIONS = {"думает": "thinking", "код": "coding", "выбор": "choice", "разрешение": "permission",
+            "готово": "done", "ждёт": "waiting",
             "ошибка": "error", "сжатие": "compacting", "без чата": "nochat", "событие": "event"}
 CONDS = {"ночь": "night", "утро": "morning", "дольше": "longer", "шанс": "chance",
          "запуск": "launch", "переключение": "switch"}
-FALLBACK = {"thinking": "Thinking", "coding": "Coding", "choice": "Waiting for a choice", "done": "Done",
+FALLBACK = {"thinking": "Thinking", "coding": "Coding", "choice": "Waiting for a choice",
+            "permission": "Waiting for permission", "done": "Done",
             "waiting": "Waiting", "error": "Error", "compacting": "Compacting", "nochat": "Idle"}
 ELLIPSIS = {"thinking", "coding", "compacting"}
 STATUS_DISPLAY = {"name": 0, "state": 1, "details": 2}
@@ -97,6 +102,10 @@ def boot_time():
     return next(int(l.split()[1]) for l in read("/proc/stat").splitlines() if l.startswith("btime"))
 
 
+def proc_name(pid):
+    return read(f"/proc/{pid}/comm").strip()
+
+
 def proc_start(pid):
     return int(read(f"/proc/{pid}/stat").rsplit(")", 1)[1].split()[19])
 
@@ -110,7 +119,7 @@ def desktop_start():
     if _desktop:
         pid, start = _desktop
         try:
-            if read(f"/proc/{pid}/comm").strip() == "claude-desktop" and proc_start(pid) == start:
+            if proc_name(pid) == "claude-desktop" and proc_start(pid) == start:
                 return boot_time() + start // os.sysconf("SC_CLK_TCK")
         except (OSError, IndexError, ValueError):
             pass
@@ -188,6 +197,23 @@ def active_session(now):
                default=None)
 
 
+def registry():
+    """hostSessionId чата Desktop → запись реестра Claude Code; только живые процессы (pid мог смениться)."""
+    out = {}
+    for f in glob.glob(REGISTRY):
+        try:
+            d = cached(f, load_json)
+            pid = int(d["pid"])
+            if proc_name(pid) != "claude" or str(proc_start(pid)) != str(d.get("procStart")):
+                continue
+        except (OSError, ValueError, KeyError, TypeError, IndexError):
+            continue
+        host, old = d.get("hostSessionId"), out.get(d.get("hostSessionId"))
+        if host and (not old or (d.get("statusUpdatedAt") or 0) > (old.get("statusUpdatedAt") or 0)):
+            out[host] = d
+    return out
+
+
 # ---- журнал сессии
 
 def ts(entry):
@@ -244,8 +270,9 @@ def mtime(path):
         return None
 
 
-def status(cli_id, now):
-    """(состояние, с какого момента): thinking / coding / choice / waiting / error / compacting."""
+def status(cli_id, now, busy=False):
+    """(состояние, с какого момента): thinking / coding / choice / waiting / error / compacting.
+    busy — реестр говорит, что ход идёт: тогда долгое молчание журнала (длинная команда) не «ждёт»."""
     files = glob.glob(TRANSCRIPTS.format(cli_id)) if cli_id else []
     if not files:
         return "waiting", now
@@ -286,7 +313,7 @@ def status(cli_id, now):
         if last["type"] == "assistant" and isinstance(content, list) else set()
     if tools & ASK_TOOLS:
         return "choice", ts(last)
-    if now - changed > STALE:
+    if now - changed > STALE and not busy:
         return "waiting", changed
     if tools & CODE_TOOLS:
         return "coding", ts(last)
@@ -430,8 +457,11 @@ class Presence:
             title = s.get("title") or conf["title_untitled"]
             if any(h.lower() in title.lower() for h in lines(os.path.join(CONF_DIR, conf["hide"]))):
                 title = conf["title_private"]
-            kind, since = status(s.get("cliSessionId"), now)
-            if kind == "waiting" and now - since < DONE:
+            reg = registry().get(s.get("sessionId")) or {}
+            kind, since = status(s.get("cliSessionId"), now, busy=reg.get("status") == "busy")
+            if reg.get("status") == "waiting" and reg.get("waitingFor") in PERMISSION:
+                kind, since = "permission", (reg.get("statusUpdatedAt") or now * 1000) / 1000
+            elif kind == "waiting" and now - since < DONE:
                 kind = "done"
 
         if kind != self.kind:
