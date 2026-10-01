@@ -16,97 +16,69 @@
 > |---|---|
 > | used daily | Fedora 44, Hyprland 0.56, Claude Desktop (unofficial Linux build 2.9939), Discord 1.0.160 |
 > | written but untested | Discord socket paths for Flatpak, Snap and Vesktop; waiting for a permission prompt |
-> | not supported | macOS, Windows, Claude Code sessions in a terminal without Desktop |
+> | not supported | macOS, Windows, Claude Code in a terminal without Desktop |
 >
-> **The code was written by an AI:** Claude, on a human's tasks and with a human's edits. This is said here, not in a footnote. How the code was checked is [at the end](#written-with-ai).
+> **The code was written by an AI:** Claude, on a human's tasks and with a human's edits. [More](#written-with-ai).
 >
-> The script reads internal files of Claude Desktop and Claude Code. They are not a public interface, and any update may change them.
+> The script reads internal files of Claude Desktop and Claude Code. They are not a public interface and an update may change them.
 
 ---
 
-## Contents
-
-[Why](#why) · [Requirements](#requirements) · [Limitations](#limitations) · [Install](#install) · [Configuration](#configuration) · [Easter eggs](#easter-eggs) · [Privacy](#privacy) · [How it works](#how-it-works) · [Update and uninstall](#update-and-uninstall) · [Written with AI](#written-with-ai)
+[Why](#why) · [Install](#install) · [Configuration](#configuration) · [Easter eggs](#easter-eggs) · [Privacy](#privacy) · [How it works](#how-it-works) · [Update and uninstall](#update-and-uninstall)
 
 ---
 
 ## Why
 
-Discord notices the `claude` process on its own, but draws an empty card with a question mark. This program replaces it with a live one:
+Discord doesn't show Claude by itself. On Linux you can add it by hand as a game, but the card stays empty with a question mark. This program brings it to life:
 
-- **first line:** the title of the open chat, or "Main menu" when no chat is selected;
-- **second line:** what Claude is doing. Thinking, editing files, asking a question, waiting for permission, just replied, waiting for you, hit an error or compacting the context. Each state has its own set of phrases, most of them easter eggs;
-- **timer:** how long Claude Desktop has been open; switching chats doesn't reset it.
+- **first line:** the open chat, or "Main menu" when none is selected;
+- **second line:** what Claude is doing: thinking, editing files, asking a question, waiting for permission, just replied, waiting for you, hit an error or compacting the context. Each state has its own phrases, most of them easter eggs;
+- **timer:** how long Claude Desktop has been open.
 
-The program does one thing. Model, tokens, limits and statistics are left out on purpose. If you need them, look at [rar-file/claude-rpc](https://github.com/rar-file/claude-rpc) or [BrunoJurkovic/claude-code-discord-status](https://github.com/BrunoJurkovic/claude-code-discord-status): they show more, but work with Claude Code rather than Desktop.
+Model, tokens and limits are left out on purpose. If you need them, there are [rar-file/claude-rpc](https://github.com/rar-file/claude-rpc) and [BrunoJurkovic/claude-code-discord-status](https://github.com/BrunoJurkovic/claude-code-discord-status), but they are for Claude Code, not Desktop.
 
-**What it is technically.** A single Python file with no third-party libraries plus a systemd service. It talks to Discord directly over the local socket and never goes online. It only reads Claude's files on disk and writes nothing to them.
+It is a single Python file with no third-party libraries plus a systemd service. It never goes online and only reads Claude's files.
 
----
-
-## Requirements
-
-| | |
-|---|---|
-| **Linux with systemd** | the service runs as your user (`systemctl --user`) |
-| **Python 3.11 or newer** | for `tomllib`; the installer checks |
-| **Claude Desktop for Linux** | the process must be named `claude-desktop` |
-| **Discord** | native, Flatpak, Snap or Vesktop |
-| **An app in the Discord Developer Portal** | free, five minutes, see [Install](#install) |
-
----
-
-## Limitations
-
-Worth knowing before you install.
-
-- **Claude Desktop only.** The open chat comes from the Desktop log. Claude Code sessions in a plain terminal don't change the card.
-- **Cloud sessions have no state.** When a cloud chat is open, the card says "Cloud session" with the "no chat" phrases: a cloud session has no transcript on disk.
-- **Compacting needs the hook.** While compacting, Claude writes nothing to the transcript. The installer adds a `PreCompact` hook to `~/.claude/settings.json` for this. Without it the compacting state never appears.
-- **Waiting for permission is untested on a real prompt.** The state comes from Claude Code's session file and the value was found in its code, but the program hasn't seen a real permission prompt yet.
-- **Other people see your chat titles.** See [Privacy](#privacy).
+**Limitations:** Claude Desktop only; cloud chats have no state, just the title "Cloud session"; compacting is visible only with the hook (the installer adds it).
 
 ---
 
 ## Install
 
+You need Linux with systemd, Python 3.11 or newer, Claude Desktop and Discord (native, Flatpak, Snap or Vesktop).
+
 1. Create an application at [discord.com/developers/applications](https://discord.com/developers/applications). Discord shows its name after "Playing". The name "Claude" is taken, something like "ClaudeDesktop" works.
 2. Under Rich Presence → Art Assets upload a 1024×1024 image with the key `claude`. Copy the Application ID from General Information.
-3. Install:
+3. Download and install:
    ```bash
-   git clone https://github.com/tomon-one/claude-desktop-presence
-   cd claude-desktop-presence
+   git clone https://github.com/tomon-one/claude-desktop-presence ~/claude-desktop-presence
+   cd ~/claude-desktop-presence
    ./install.sh --lang en
    ```
 4. Put the Application ID into `~/.config/claude-desktop-presence/config.toml` and start the service:
    ```bash
    systemctl --user enable --now claude-desktop-presence
    ```
-5. If Discord detected the `claude` process by itself and shows an empty card, remove it in Discord settings under Registered Games.
+5. If you added `claude` to Discord by hand before, remove it in Discord settings under Registered Games, or you'll get two cards.
 
-The installer adds the `PreCompact` hook to `~/.claude/settings.json` and keeps the previous file as `settings.json.bak`. The hook only drops an empty marker file into `~/.cache/claude-desktop-presence/`. To install without it: `./install.sh --no-hook`.
+The installer adds a `PreCompact` hook to `~/.claude/settings.json`: Claude writes nothing to the transcript while compacting, so without the hook this state can't be seen. The hook only drops an empty marker file. Without it: `./install.sh --no-hook`.
 
 ---
 
 ## Configuration
 
-Everything lives in `~/.config/claude-desktop-presence/`:
-
-| file | contents |
-|---|---|
-| `config.toml` | Application ID, image, titles for special cases and the optional settings below |
-| `words.txt` | phrases and easter eggs, re-read on the fly |
-| `hide.txt` | parts of chat titles to hide |
+Everything lives in `~/.config/claude-desktop-presence/`: `config.toml` with settings, `words.txt` with phrases (re-read on the fly) and `hide.txt` with hidden chats.
 
 Optional settings in `config.toml`:
 
 | setting | what it does |
 |---|---|
 | `status_display = "state"` | the server member list shows the phrase under your name instead of the app name |
-| `state_icons = true` | a small state icon in the corner of the image. Ready-made icons are in [docs/icons](docs/icons); upload them to Art Assets with the file names as keys |
-| `buttons` | up to two link buttons. Discord hides them from you; other people see them |
+| `state_icons = true` | a state icon in the corner of the image. Icons are in [docs/icons](docs/icons); upload them to Art Assets with the file names as keys |
+| `buttons` | up to two link buttons; other people see them, you don't |
 
-Restart the service after editing `config.toml`: `systemctl --user restart claude-desktop-presence`. Log: `journalctl --user -u claude-desktop-presence -f`.
+After editing `config.toml`: `systemctl --user restart claude-desktop-presence`. Log: `journalctl --user -u claude-desktop-presence -f`.
 
 ---
 
@@ -228,46 +200,43 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 
 ## Privacy
 
-The card is visible to everyone Discord shows your activity to: friends and members of shared servers. So they see chat titles too. Hide specific chats with `hide.txt`. Turn activity off for a particular server in Discord settings under Activity Privacy. The service log only records states, never chat titles.
+Friends and members of shared servers see the card, and so the chat titles. To hide a chat, put part of its title into `hide.txt`, one per line:
+
+```
+# ~/.config/claude-desktop-presence/hide.txt
+Personal
+Resume
+```
+
+Chats "Personal: plans" and "Resume for work" become "Private session" on the card. Case doesn't matter, no restart needed. To turn activity off for a single server, use Discord's Activity Privacy settings. Chat titles never go to the service log.
 
 ---
 
 ## How it works
 
-- **Open chat.** Claude Desktop writes a `setFocusedSession` line to `~/.config/Claude/logs/main.log` on every switch. If it stays `null` for over 5 seconds, no chat is selected. Titles come from `~/.config/Claude/claude-code-sessions/`.
-- **State.** The script reads the end of the session transcript `~/.claude/projects/*/<id>.jsonl`. Reply finished: waiting. Last tool is `Edit` or `Write`: editing files. `AskUserQuestion`: a multiple-choice question. API error: error. Otherwise thinking. Background task notifications and local commands don't count as a new turn.
-- **Permissions and long tools.** Claude Code keeps a file per session, `~/.claude/sessions/<pid>.json`, saying whether the session is busy or waiting for something. The script only trusts files of live processes: the process name and start time must match.
-- **Discord.** The card is sent with `SET_ACTIVITY` over `$XDG_RUNTIME_DIR/discord-ipc-N`. It polls every 4 seconds and sends only changes. If Discord is closed, the pause between attempts grows up to a minute.
-
-If the card acts strange, check the service log first.
+- **The open chat** comes from the Desktop log `~/.config/Claude/logs/main.log` (`setFocusedSession` lines), titles from `~/.config/Claude/claude-code-sessions/`.
+- **The state** comes from the end of the session transcript `~/.claude/projects/*/<id>.jsonl` and Claude Code's session file `~/.claude/sessions/<pid>.json`, which shows a pending permission prompt.
+- **To Discord** the card goes over the local `discord-ipc` socket, only when it changes. It polls every 4 seconds.
 
 ---
 
 ## Update and uninstall
 
+To update, go to the folder you cloned into and run the installer again:
+
 ```bash
-git pull && ./install.sh --lang en
+cd ~/claude-desktop-presence
+git pull
+./install.sh --lang en
 ```
 
-The installer never overwrites your `words.txt`. To see new phrases: `diff words/en.txt ~/.config/claude-desktop-presence/words.txt`.
-
-Uninstall: `./install.sh --uninstall`. It removes the service, the script and the hook and keeps your settings.
-
-Tests: `python3 -m unittest discover -s tests -v`. They run on synthetic transcripts and a fake Discord socket and need no real Claude Desktop or Discord.
+The installer never overwrites your `words.txt`; see new phrases with `diff words/en.txt ~/.config/claude-desktop-presence/words.txt`. To uninstall: `./install.sh --uninstall` (service, script and hook; settings stay).
 
 ---
 
 ## Written with AI
 
-All the code, the tests and this README were written by Claude in Claude Code. The human decided what to show and when, came up with the easter eggs, tested everything on a real Discord and chose what to keep. "Written by AI" proves nothing by itself, so here is how checked code was told apart from merely generated code.
-
-**Bugs found only in real use.** The card kept blinking: the "is Discord alive" check waited 5 seconds for a reply, took silence for a dropped connection and reconnected on every poll. After the usage limit ran out the card said "thinking": a background task notification lands in the transcript as a user message. Compacting was invisible: it turned out Claude writes nothing to the transcript while compacting, hence the hook. A human noticed all three by looking at their own profile, not a code check.
-
-**An audit by independent agents.** Before publishing, five agents went through the project, each with its own topic: similar projects and their tricks, the Discord documentation, bugs and failure behaviour, dead code and comments, the README against the code. One more agent had the opposite task: to refute every bug found. It confirmed 41 of 43 findings, mostly minor ones. Everything confirmed is fixed.
-
-**Tests that are themselves tested.** 41 automated tests: synthetic session transcripts, the Desktop log, the words file, a fake Discord socket. The key tests were run against deliberately broken code: a fix was removed to make sure the test fails. The installer was run separately in a sandbox with a fake home directory.
-
-**What this does not mean.** The program has seen one computer, one Claude Desktop build and native Discord. The Flatpak, Snap and Vesktop paths are only written. Waiting for permission has not been checked on a real prompt.
+The code, the tests and the README were written by Claude in Claude Code. A human decided what to show, came up with the easter eggs and tested everything on a real Discord. Before publishing, the code went through an audit by independent agents and everything found was fixed. 41 automated tests run on synthetic transcripts and a fake Discord: `python3 -m unittest discover -s tests`.
 
 ---
 
