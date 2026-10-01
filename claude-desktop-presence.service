@@ -5,6 +5,7 @@ Description=Discord Rich Presence for Claude Desktop
 ExecStart=%h/.local/bin/claude-desktop-presence
 Restart=on-failure
 RestartSec=30
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=default.target

@@ -1,0 +1,1 @@
+# One chat title substring per line: matching chats are shown as "Private session".

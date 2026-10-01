@@ -1,18 +1,17 @@
-# ~/.config/claude-desktop-presence/config.toml
+# ~/.config/claude-desktop-presence/config.toml — после правки: systemctl --user restart claude-desktop-presence
 
 # Application ID приложения Discord (discord.com/developers/applications → General Information).
-# Его имя показывается в карточке после «Играет в».
 client_id = ""
 
-# Ключ картинки из Rich Presence → Art Assets того же приложения и подпись к ней.
+# Ключ картинки из Rich Presence → Art Assets (или https-ссылка на картинку) и подпись к ней.
 image = "claude"
 image_text = "Claude"
 
-# Файлы рядом с этим: слова для второй строки и подстроки названий чатов, которые скрывать.
+# Что видно в списке участников сервера: "name" — имя приложения, "state" — фраза, "details" — название чата.
+status_display = "name"
+
+# Файлы рядом: фразы и подстроки названий чатов, которые скрывать.
 words = "words.txt"
 hide = "hide.txt"
 
-# Первая строка карточки в особых случаях.
-title_no_chat = "Главное меню"
-title_private = "Приватная сессия"
-title_untitled = "Без названия"
+# Первая строка карточки в особых случаях (по умолчанию по-английски; ./install.sh дописывает русские).
