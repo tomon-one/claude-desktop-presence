@@ -1,0 +1,24 @@
+# ~/.config/claude-desktop-presence/config.toml; after editing: systemctl --user restart claude-desktop-presence
+
+# Application ID of your Discord application (discord.com/developers/applications → General Information).
+client_id = ""
+
+# Image key from Rich Presence → Art Assets (or an https link to an image) and its tooltip.
+image = "claude"
+image_text = "Claude"
+
+# What the server member list shows: "name" for the app name, "state" for the phrase, "details" for the chat title.
+status_display = "name"
+
+# Small state icon in the corner. Upload the images from docs/icons to Art Assets first,
+# keyed by file name (thinking, coding, choice, permission, done, waiting, error, compacting, nochat).
+state_icons = false
+
+# Up to two buttons on the card, https only. Discord hides them from you; other people see them.
+# buttons = [{ label = "GitHub", url = "https://github.com/tomon-one/claude-desktop-presence" }]
+
+# Files next to this one: phrases and parts of chat titles to hide.
+words = "words.txt"
+hide = "hide.txt"
+
+# Titles for special cases (defaults: "Main menu", "Cloud session", "Private session", "Untitled").

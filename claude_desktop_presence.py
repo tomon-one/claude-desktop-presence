@@ -8,12 +8,12 @@
 import datetime, functools, glob, json, os, random, re, select, socket, struct, sys, time, uuid
 
 HOME = os.path.expanduser("~")
-CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME", HOME + "/.config"), "claude-desktop-presence")
-STATE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", HOME + "/.cache"), "claude-desktop-presence")
+CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
+STATE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache", "claude-desktop-presence")
 DESKTOP = HOME + "/.config/Claude"
 SESSIONS = DESKTOP + "/claude-code-sessions/*/*/local_*.json"
 DESKTOP_LOGS = [DESKTOP + "/logs/main.log", DESKTOP + "/logs/main1.log"]   # второй — после ротации
-CLAUDE_HOME = os.environ.get("CLAUDE_CONFIG_DIR", HOME + "/.claude")
+CLAUDE_HOME = os.environ.get("CLAUDE_CONFIG_DIR") or HOME + "/.claude"
 TRANSCRIPTS = CLAUDE_HOME + "/projects/*/{}.jsonl"
 REGISTRY = CLAUDE_HOME + "/sessions/*.json"     # Claude Code: pid → status, waitingFor
 
@@ -25,6 +25,8 @@ STALE = 600         # журнал молчит дольше — Claude зави
 DONE = 30
 EVENT = 60
 RETRY_MAX = 60      # пауза между поисками Discord растёт до этой
+FAILS_CLEAR = 3     # столько опросов подряд со сбоем — снять карточку, а не держать устаревшую
+CACHE_IDLE = 50     # опросов без обращения — запись кэша выбрасывается
 
 TAIL = 512 * 1024           # байт с конца журнала; одна строка бывает больше (картинки) —
 TAIL_MAX = 32 * 1024 * 1024  # тогда окно растёт до этого
@@ -53,7 +55,7 @@ DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words":
 
 
 def read(path):
-    with open(path, encoding="utf-8") as fh:
+    with open(path, encoding="utf-8-sig") as fh:
         return fh.read()
 
 
@@ -61,38 +63,57 @@ def config():
     import tomllib     # не на верхнем уровне: хуку tomllib не нужен
     conf = dict(DEFAULTS)
     path = os.path.join(CONF_DIR, "config.toml")
+    def fail(msg):
+        print(f"{path}: {msg}", file=sys.stderr)
+        sys.exit(EX_CONFIG)
     try:
         with open(path, "rb") as fh:
             conf.update(tomllib.load(fh))
     except FileNotFoundError:
         pass
-    except tomllib.TOMLDecodeError as e:
-        print(f"{path}: {e}", file=sys.stderr)
-        sys.exit(EX_CONFIG)
-    if not conf["client_id"]:
-        print(f"нет client_id в {path} (Application ID приложения Discord)", file=sys.stderr)
-        sys.exit(EX_CONFIG)
+    except (OSError, ValueError) as e:      # TOMLDecodeError и UnicodeDecodeError — тоже ValueError
+        fail(e)
+    for key, default in DEFAULTS.items():
+        if key != "client_id" and not isinstance(conf[key], type(default)):
+            fail(f"{key}: ожидается {type(default).__name__}")
+    if not str(conf["client_id"]).isdecimal():
+        fail("client_id — Application ID приложения Discord, только цифры")
+    if conf["status_display"] not in STATUS_DISPLAY:
+        fail(f"status_display: одно из {', '.join(STATUS_DISPLAY)}")
     return conf
 
 
-_cache = {}
+_cache, _tick = {}, 0     # путь → (mtime и размер, результат, номер опроса последнего обращения)
 
 
 def cached(path, parse):
     """parse(path), только если файл изменился; не разобрался (пишется) — прошлый результат."""
-    st = os.stat(path)
+    try:
+        st = os.stat(path)
+    except OSError:
+        _cache.pop(path, None)
+        raise
     key = (st.st_mtime_ns, st.st_size)
     hit = _cache.get(path)
     if hit and hit[0] == key:
+        _cache[path] = (key, hit[1], _tick)
         return hit[1]
     try:
         value = parse(path)
-    except ValueError:
+    except (ValueError, RecursionError):
         if hit:
             return hit[1]
         raise
-    _cache[path] = (key, value)
+    _cache[path] = (key, value, _tick)
     return value
+
+
+def cache_tick():
+    """Новый опрос; записи, к которым давно не обращались (чужие журналы), выбросить."""
+    global _tick
+    _tick += 1
+    for path in [p for p, (_, _, used) in _cache.items() if _tick - used > CACHE_IDLE]:
+        del _cache[path]
 
 
 # ---- Claude Desktop
@@ -139,26 +160,46 @@ def desktop_start():
     return boot_time() + start // os.sysconf("SC_CLK_TCK")
 
 
-def parse_focus(path):
-    """Последний setFocusedSession в логе: (id или None, unix-время); None — строки нет."""
-    with open(path, "rb") as fh:
-        fh.seek(max(0, os.path.getsize(path) - TAIL))
-        tail = fh.read().decode(errors="replace").splitlines()
-    for l in reversed(tail):
-        if "setFocusedSession: sessionId=" in l:
-            sid = l.rsplit("=", 1)[1].strip()
-            try:
-                at = time.mktime(time.strptime(l[:19], "%Y-%m-%d %H:%M:%S"))
-            except ValueError:
-                at = 0
-            return (None if sid == "null" else sid), at
-    return None
+FOCUS = re.compile(rb"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d).*setFocusedSession: sessionId=([\w-]+)", re.M)
+_focus = {}     # путь лога → (inode, прочитано байт, последний фокус)
+
+
+def last_focus(data):
+    """Последний setFocusedSession в куске лога: (id или None, unix-время) или None."""
+    found = None
+    for m in FOCUS.finditer(data):
+        found = m
+    if not found:
+        return None
+    sid = found.group(2).decode()
+    try:
+        at = time.mktime(time.strptime(found.group(1).decode(), "%Y-%m-%d %H:%M:%S"))
+    except ValueError:
+        at = 0
+    return (None if sid == "null" else sid), at
+
+
+def focused_in(path):
+    """Фокус из лога целиком: читается только дописанное с прошлого раза (лог растёт до 10 МБ и ротируется)."""
+    st = os.stat(path)
+    ino, done, found = _focus.get(path, (None, 0, None))
+    if ino != st.st_ino or st.st_size < done:
+        done, found = 0, None
+    if st.st_size > done:
+        with open(path, "rb") as fh:
+            fh.seek(done)
+            data = fh.read(st.st_size - done)
+        end = data.rfind(b"\n") + 1      # недописанную строку — в следующий раз
+        found = last_focus(data[:end]) or found
+        done += end
+    _focus[path] = (st.st_ino, done, found)
+    return found
 
 
 def focused():
     for path in DESKTOP_LOGS:
         try:
-            found = cached(path, parse_focus)
+            found = focused_in(path)
         except OSError:
             continue
         if found:
@@ -178,11 +219,9 @@ def active_session(now):
     sessions = []
     for f in glob.glob(SESSIONS):
         try:
-            d = cached(f, load_json)
-        except (OSError, ValueError):
+            sessions.append(cached(f, load_json))
+        except (OSError, ValueError, RecursionError):
             continue
-        if not d.get("isArchived"):
-            sessions.append(d)
     foc = focused()
     if foc:
         sid, at = foc
@@ -193,8 +232,12 @@ def active_session(now):
             return hit
         if sid and sid.startswith("session_"):
             return {"sessionId": sid, "cloud": True}
-    return max(sessions, key=lambda d: max(d.get("lastFocusedAt") or 0, d.get("latestUserFrameAt") or 0),
-               default=None)
+    return max((d for d in sessions if not d.get("isArchived")), default=None,
+               key=lambda d: max(num(d.get("lastFocusedAt")), num(d.get("latestUserFrameAt"))))
+
+
+def num(x):
+    return x if isinstance(x, (int, float)) and not isinstance(x, bool) else 0
 
 
 def registry():
@@ -206,10 +249,10 @@ def registry():
             pid = int(d["pid"])
             if proc_name(pid) != "claude" or str(proc_start(pid)) != str(d.get("procStart")):
                 continue
-        except (OSError, ValueError, KeyError, TypeError, IndexError):
+        except (OSError, ValueError, KeyError, TypeError, IndexError, RecursionError):
             continue
-        host, old = d.get("hostSessionId"), out.get(d.get("hostSessionId"))
-        if host and (not old or (d.get("statusUpdatedAt") or 0) > (old.get("statusUpdatedAt") or 0)):
+        host = d.get("hostSessionId")
+        if isinstance(host, str) and num(d.get("statusUpdatedAt")) >= num(out.get(host, {}).get("statusUpdatedAt")):
             out[host] = d
     return out
 
@@ -236,8 +279,23 @@ def tool_result(e):
 def local_command(e):
     """Строки /compact и других локальных команд, итог сжатия — не начало хода."""
     t = text_of(e)[:300]
-    return bool(e.get("isMeta") or e.get("isCompactSummary")
+    return bool(e.get("isCompactSummary")
                 or "<local-command-stdout>" in t or "<command-name>" in t or "<local-command-caveat>" in t)
+
+
+def interrupted(e):
+    """Esc: «[Request interrupted…» в начале текста или результата инструмента, а не цитата в выводе."""
+    content = (e.get("message") or {}).get("content")
+    blocks = [content] if isinstance(content, str) else content if isinstance(content, list) else []
+    for b in blocks:
+        text = b
+        if isinstance(b, dict):
+            text = b.get("text") if b.get("type") == "text" else b.get("content") if b.get("type") == "tool_result" else None
+        if isinstance(text, list):
+            text = next((x.get("text") for x in text if isinstance(x, dict)), None)
+        if isinstance(text, str) and text.startswith("[Request interrupted"):
+            return True
+    return False
 
 
 def compact_marker(cli_id):
@@ -254,7 +312,7 @@ def read_tail(path):
         for raw in data.splitlines():
             try:
                 e = json.loads(raw)
-            except ValueError:
+            except (ValueError, RecursionError):
                 continue    # первая строка после seek обрезана, последняя может дописываться
             if isinstance(e, dict):
                 entries.append(e)
@@ -273,18 +331,22 @@ def mtime(path):
 def status(cli_id, now, busy=False):
     """(состояние, с какого момента): thinking / coding / choice / waiting / error / compacting.
     busy — реестр говорит, что ход идёт: тогда долгое молчание журнала (длинная команда) не «ждёт»."""
-    files = glob.glob(TRANSCRIPTS.format(cli_id)) if cli_id else []
+    files = [(m, f) for f in glob.glob(TRANSCRIPTS.format(cli_id)) if (m := mtime(f))] if cli_id else []
     if not files:
-        return "waiting", now
-    path = max(files, key=os.path.getmtime)
-    entries = cached(path, read_tail)
-    changed = os.path.getmtime(path)
+        return "waiting", None      # журнала нет: момент начала неизвестен
+    changed, path = max(files)
+    try:
+        entries = cached(path, read_tail)
+    except FileNotFoundError:
+        return "waiting", None
 
     mark = mtime(compact_marker(cli_id))
     if mark:
+        # сжатие кончилось (compact_boundary), сорвалось (ошибка) или отменено (чат пошёл дальше)
         after = [e for e in entries if e.get("timestamp") and ts(e) >= mark - 1]
-        if now - mark < STALE and not any(e.get("subtype") == "compact_boundary" or e.get("isApiErrorMessage")
-                                          for e in after):
+        over = any(e.get("subtype") == "compact_boundary" or e.get("type") == "assistant"
+                   or (e.get("type") == "user" and not tool_result(e) and not local_command(e)) for e in after)
+        if now - mark < STALE and not over:
             return "compacting", mark
         try:
             os.remove(compact_marker(cli_id))
@@ -300,7 +362,7 @@ def status(cli_id, now, busy=False):
         # конец хода: end_turn, а также stop_sequence, refusal, max_tokens
         if (last.get("message") or {}).get("stop_reason") not in (None, "tool_use"):
             return "waiting", ts(last)
-    elif "[Request interrupted" in text_of(last) or local_command(last):
+    elif interrupted(last) or local_command(last):
         return "waiting", ts(last)
     elif "<task-notification>" in text_of(last)[:300]:
         # уведомление фоновой задачи после ошибки API — ход не начат, ошибка остаётся
@@ -309,7 +371,7 @@ def status(cli_id, now, busy=False):
             return "error", ts(prev)
 
     content = (last.get("message") or {}).get("content")
-    tools = {b.get("name") for b in content if isinstance(b, dict) and b.get("type") == "tool_use"} \
+    tools = {str(b.get("name")) for b in content if isinstance(b, dict) and b.get("type") == "tool_use"} \
         if last["type"] == "assistant" and isinstance(content, list) else set()
     if tools & ASK_TOOLS:
         return "choice", ts(last)
@@ -317,11 +379,24 @@ def status(cli_id, now, busy=False):
         return "waiting", changed
     if tools & CODE_TOOLS:
         return "coding", ts(last)
-    turn = next((e for e in reversed(entries) if e.get("type") == "user" and not tool_result(e)), None)
+    turn = next((e for e in reversed(entries)
+                 if e.get("type") == "user" and not tool_result(e) and not e.get("isMeta")), None)
     return "thinking", ts(turn) if turn else changed
 
 
 # ---- слова
+
+def hidden(title, path):
+    """Скрыть ли чат. hide.txt есть, но не читается (кодировка, права) — скрывать всё, а не ничего."""
+    try:
+        rows = read(path).splitlines()
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True
+    words = [l.strip().lower() for l in rows if l.strip() and not l.strip().startswith("#")]
+    return any(w in title.lower() for w in words)
+
 
 def lines(path):
     try:
@@ -339,14 +414,19 @@ def parse_words(rows):
             name = l[1:-1].strip().lower()
             section = SECTIONS.get(name, name)
             continue
-        word, _, cond = l.partition("@")
-        word, parts = word.strip(), cond.lower().split()
-        if not word:
-            continue
-        head = parts[0] if parts else ""
-        n = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        out.setdefault(section, []).append((word, CONDS.get(head, head), n))
+        word, cond, n = l, "", None
+        m = COND.match(l)
+        if m and (m[2].lower() in CONDS or m[2].lower() in CONDS.values() or re.fullmatch(r"\d{1,2}:\d\d", m[2])):
+            word, cond, n = m[1].strip(), m[2].lower(), int(m[3]) if m[3] else None
+            if ":" in cond:
+                h, mi = cond.split(":")
+                cond = f"{int(h):02d}:{mi}"
+        if word:
+            out.setdefault(section, []).append((word, CONDS.get(cond, cond), n))
     return out
+
+
+COND = re.compile(r"^(.*?)\s*@\s*(\S+)(?:\s+([0-9]+))?\s*$")
 
 
 def in_hours(hour, span):
@@ -372,13 +452,13 @@ def candidates(words, kind, since, morning, lucky, now):
             if word in lucky:
                 special.append(word)
         elif cond == "longer":
-            if now - since > n * 60:
+            if now - since > (n or 0) * 60:
                 if n > longest[0]:
                     longest = (n, [])
                 if n == longest[0]:
                     longest[1].append(word)
         elif ":" in cond:
-            if clock.strftime("%H:%M") == cond.zfill(5):
+            if clock.strftime("%H:%M") == cond:
                 exclusive.append(word)
     special += longest[1]
     return exclusive, special, pool or [FALLBACK.get(kind, FALLBACK["waiting"])]
@@ -386,7 +466,7 @@ def candidates(words, kind, since, morning, lucky, now):
 
 def roll_chance(words, kind):
     """@шанс N — бросок один раз на вход в состояние, иначе слово мигало бы."""
-    return {w for w, c, n in words.get(kind, []) if c == "chance" and random.random() * 100 < n}
+    return {w for w, c, n in words.get(kind, []) if c == "chance" and random.random() * 100 < (n or 0)}
 
 
 def pick(word, exclusive, special, pool):
@@ -402,7 +482,7 @@ def pick(word, exclusive, special, pool):
 
 def event_word(words, trigger):
     """Слово из [событие] для launch / switch (у switch число — шанс в %)."""
-    hits = [w for w, c, n in words.get("event", []) if c == trigger and random.random() * 100 < (n or 100)]
+    hits = [w for w, c, n in words.get("event", []) if c == trigger and random.random() * 100 < (100 if n is None else n)]
     return random.choice(hits) if hits else None
 
 
@@ -426,7 +506,7 @@ class Presence:
 
     def __init__(self, conf):
         self.conf = conf
-        self.word, self.word_at, self.kind, self.lucky = None, 0, None, set()
+        self.word, self.word_at, self.kind, self.kind_at, self.lucky = None, 0, None, 0, set()
         self.morning, self.morning_day = False, None
         self.sid, self.sid_local, self.seen_start = None, False, None
         self.event, self.event_until = None, 0
@@ -452,25 +532,28 @@ class Presence:
             self.sid, self.sid_local, self.word = s.get("sessionId"), local, None
 
         if not local:
-            title, kind, since = conf["title_no_chat" if s.get("nochat") else "title_cloud"], "nochat", now
+            title, kind, since = conf["title_no_chat" if s.get("nochat") else "title_cloud"], "nochat", None
         else:
-            title = s.get("title") or conf["title_untitled"]
-            if any(h.lower() in title.lower() for h in lines(os.path.join(CONF_DIR, conf["hide"]))):
+            title = s.get("title") if isinstance(s.get("title"), str) else ""
+            title = title.strip() or conf["title_untitled"]
+            if hidden(title, os.path.join(CONF_DIR, conf["hide"])):
                 title = conf["title_private"]
             reg = registry().get(s.get("sessionId")) or {}
             kind, since = status(s.get("cliSessionId"), now, busy=reg.get("status") == "busy")
             if reg.get("status") == "waiting" and reg.get("waitingFor") in PERMISSION:
-                kind, since = "permission", (reg.get("statusUpdatedAt") or now * 1000) / 1000
-            elif kind == "waiting" and now - since < DONE:
+                kind, since = "permission", (num(reg.get("statusUpdatedAt")) or now * 1000) / 1000
+            elif kind == "waiting" and since and now - since < DONE:
                 kind = "done"
 
+        clock = datetime.datetime.fromtimestamp(now)
         if kind != self.kind:
-            clock = datetime.datetime.fromtimestamp(now)
             self.morning = kind == "waiting" and in_hours(clock.hour, MORNING) and self.morning_day != clock.date()
             if self.morning:
                 self.morning_day = clock.date()
-            self.kind, self.word, self.lucky = kind, None, roll_chance(words, kind)
-        exclusive, special, pool = candidates(words, kind, since, self.morning, self.lucky, now)
+            self.kind, self.kind_at, self.word, self.lucky = kind, now, None, roll_chance(words, kind)
+        since = since or self.kind_at       # без журнала и без чата — с момента входа в состояние
+        morning = self.morning and in_hours(clock.hour, MORNING)
+        exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now)
         if self.word not in (exclusive or special + pool) or now - self.word_at > WORD_EVERY:
             self.word, self.word_at = pick(self.word, exclusive, special, pool), now
 
@@ -482,10 +565,11 @@ class Presence:
             activity["assets"]["small_image"] = kind    # ключ в Art Assets = имя состояния, см. docs/icons
         if STATUS_DISPLAY.get(conf["status_display"]):
             activity["status_display_type"] = STATUS_DISPLAY[conf["status_display"]]
-        buttons = [{"label": str(b["label"])[:32], "url": str(b["url"])} for b in conf["buttons"][:2]
-                   if isinstance(b, dict) and b.get("label") and str(b.get("url", "")).startswith("https://")]
+        buttons = [{"label": str(b["label"]).strip()[:32], "url": b["url"]} for b in conf["buttons"]
+                   if isinstance(b, dict) and str(b.get("label", "")).strip() and isinstance(b.get("url"), str)
+                   and re.fullmatch(r"https://\S{1,504}", b["url"])]
         if buttons:
-            activity["buttons"] = buttons
+            activity["buttons"] = buttons[:2]
         return activity, shown
 
 
@@ -495,8 +579,12 @@ class DiscordError(Exception):
     """Discord отклонил команду; соединение при этом живо."""
 
 
+class InvalidClient(ConnectionError):
+    """Discord не знает такого client_id — дальше пробовать бессмысленно."""
+
+
 def sockets():
-    run = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    run = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
     # обычный клиент и arRPC, Flatpak (Discord, Canary, Vesktop), Snap
     dirs = [run, run + "/app/com.discordapp.Discord", run + "/app/com.discordapp.DiscordCanary",
             run + "/app/dev.vencord.Vesktop", run + "/.flatpak/com.discordapp.Discord/xdg-run",
@@ -514,8 +602,11 @@ class Discord:
         self.sock.sendall(struct.pack("<II", op, len(raw)) + raw)
         op, n = struct.unpack("<II", self._recv(8))
         body = json.loads(self._recv(n))
-        if op == 2:     # CLOSE: неверный client_id и т. п.
-            raise ConnectionError(body.get("message") or "Discord закрыл соединение")
+        if not isinstance(body, dict):
+            raise ValueError("Discord: ответ не объект")
+        if op == 2:     # CLOSE
+            msg = body.get("message") or "Discord закрыл соединение"
+            raise InvalidClient(msg) if body.get("code") == 4000 else ConnectionError(msg)
         return body
 
     def _recv(self, n):
@@ -537,6 +628,9 @@ class Discord:
                 if self._send(0, {"v": 1, "client_id": self.client_id}).get("evt") == "READY":
                     return
                 err = ConnectionError(f"{path}: нет READY")
+            except InvalidClient:
+                self.close()
+                raise
             except (OSError, ValueError) as e:
                 err = e
             self.close()
@@ -569,10 +663,13 @@ def hook():
     """Хук PreCompact: метка «идёт сжатие». Ничего не выводит и сжатию не мешает."""
     try:
         data = json.load(sys.stdin)
-        sid = str(data.get("session_id", ""))
-        if data.get("hook_event_name") == "PreCompact" and re.fullmatch(r"[\w-]{1,100}", sid):
+        sid = data.get("session_id")
+        if data.get("hook_event_name") == "PreCompact" and isinstance(sid, str) and re.fullmatch(r"[\w-]{1,100}", sid):
             os.makedirs(STATE_DIR, exist_ok=True)
             open(compact_marker(sid), "w").close()
+            for old in glob.glob(compact_marker("*")):      # метки сессий, которые карточка так и не открыла
+                if time.time() - (mtime(old) or time.time()) > 86400:
+                    os.remove(old)
     except Exception:
         pass
 
@@ -594,32 +691,42 @@ class Link:
             return None
         if activity == self.shown or now < self.retry_at:
             return None
+        note = ""
         try:
             if not self.dc.sock:
                 self.dc.connect()
-                self.delay = POLL
+                self.delay, note = POLL, "подключился к Discord · "
             self.dc.set(activity)
         except DiscordError as e:
             self.shown = activity   # то же самое не слать, связь не рвать
             return f"Discord отклонил карточку: {e}"
+        except InvalidClient:
+            raise
         except (OSError, ValueError) as e:
             self.dc.close()
             self.shown = "reconnect"
             self.retry_at, self.delay = now + self.delay, min(self.delay * 2, RETRY_MAX)
             return f"ошибка: {e}"
         self.shown = activity
-        return f"→ {activity['state']}" if activity else "→ пусто"
+        return note + (f"→ {activity['state']}" if activity else "→ пусто")
 
 
 def main():
     conf = config()
-    presence, link, last = Presence(conf), Link(str(conf["client_id"])), None
+    presence, link, last, fails = Presence(conf), Link(str(conf["client_id"])), None, 0
     while True:
+        cache_tick()
         try:
             activity, _ = presence.build(time.time())
-            msg = link.update(activity, time.time())
+            msg, fails = link.update(activity, time.time()), 0
+        except InvalidClient as e:
+            print(f"Discord: {e}, проверь client_id в config.toml", file=sys.stderr)
+            sys.exit(EX_CONFIG)
         except Exception as e:     # кривой файл Desktop или журнала — пропустить опрос, но не падать
+            fails += 1
             msg = f"сбой опроса: {e!r}"
+            if fails == FAILS_CLEAR:
+                link.update(None, time.time())      # не держать в Discord застывшую карточку
         if msg and msg != last:    # одинаковые строки подряд не повторять
             print(msg, flush=True)
             last = msg

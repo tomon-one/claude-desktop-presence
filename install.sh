@@ -24,7 +24,7 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || { echo "нуж�
 
 bin=$HOME/.local/bin/claude-desktop-presence
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/claude-desktop-presence
-unit=$HOME/.config/systemd/user/claude-desktop-presence.service
+unit=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/claude-desktop-presence.service
 
 # добавить (add) или убрать (remove) хук в ~/.claude/settings.json, не трогая остальное
 settings_hook() {
@@ -37,10 +37,13 @@ try:
         s = json.load(fh)
 except FileNotFoundError:
     s = {}
-except json.JSONDecodeError as e:
-    sys.exit(f"{path} — не JSON ({e}), хук не тронут: поправь файл и запусти снова")
-hooks = s.setdefault("hooks", {})
-entries = hooks.get("PreCompact", [])
+except (OSError, ValueError) as e:
+    sys.exit(f"{path} не читается ({e}), хук не тронут: поправь файл и запусти снова")
+hooks = s.get("hooks", {}) if isinstance(s, dict) else None
+entries = hooks.get("PreCompact", []) if isinstance(hooks, dict) else None
+if not isinstance(entries, list) or not all(isinstance(e, dict) and isinstance(e.get("hooks", []), list) for e in entries):
+    sys.exit(f"{path}: неожиданная структура hooks, хук не тронут, добавь вручную: {cmd}")
+s["hooks"] = hooks
 ours = [e for e in entries if any(h.get("command") == cmd for h in e.get("hooks", []))]
 if action == "add" and ours or action == "remove" and not ours:
     sys.exit(0)
@@ -65,7 +68,7 @@ EOF
 
 if (( uninstall )); then
     systemctl --user disable --now claude-desktop-presence 2>/dev/null || true
-    settings_hook remove
+    settings_hook remove || echo "хук не убран, убери вручную из ~/.claude/settings.json"
     rm -f "$bin" "$unit"
     rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/claude-desktop-presence"
     systemctl --user daemon-reload
@@ -76,7 +79,7 @@ fi
 mkdir -p "$(dirname "$bin")" "$conf" "$(dirname "$unit")"
 if (( link )); then ln -sf "$PWD/claude_desktop_presence.py" "$bin"; else install -m 755 claude_desktop_presence.py "$bin"; fi
 if [[ ! -e $conf/config.toml ]]; then
-    cp config.example.toml "$conf/config.toml"
+    if [[ $lang == en ]]; then cp config.example.en.toml "$conf/config.toml"; else cp config.example.toml "$conf/config.toml"; fi
     [[ $lang == ru ]] && cat >> "$conf/config.toml" <<'EOF'
 title_no_chat = "Главное меню"
 title_cloud = "Облачная сессия"
@@ -91,10 +94,20 @@ elif ! cmp -s "words/$lang.txt" "$conf/words.txt"; then
 fi
 [[ -e $conf/hide.txt ]] || cp "words/hide.$lang.txt" "$conf/hide.txt"
 cp claude-desktop-presence.service "$unit"
-(( hook )) && settings_hook add
+if (( hook )); then settings_hook add || echo "продолжаю без хука: сжатие в карточке видно не будет"; fi
 
 systemctl --user daemon-reload
-if python3 -c 'import sys, tomllib; sys.exit(not tomllib.load(open(sys.argv[1], "rb")).get("client_id"))' "$conf/config.toml"; then
+if python3 - "$conf/config.toml" <<'EOF'
+import sys, tomllib
+try:
+    with open(sys.argv[1], "rb") as fh:
+        ok = bool(tomllib.load(fh).get("client_id"))
+except (OSError, ValueError) as e:
+    print(f"{sys.argv[1]} не разбирается: {e}", file=sys.stderr)
+    ok = False
+sys.exit(not ok)
+EOF
+then
     systemctl --user enable claude-desktop-presence
     systemctl --user restart claude-desktop-presence
     echo "служба запущена: journalctl --user -u claude-desktop-presence -f"

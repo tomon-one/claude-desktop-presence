@@ -41,6 +41,7 @@ class Sandbox(unittest.TestCase):
                                          SESSIONS=d + "/sessions/*/*/local_*.json")
         self.patch.start()
         p._cache.clear()
+        p._focus.clear()
 
     def tearDown(self):
         self.patch.stop()
@@ -109,6 +110,39 @@ class Status(Sandbox):
     def test_null_timestamp(self):
         self.assertEqual(self.state({"type": "user", "timestamp": None, "message": {"content": "x"}}), "thinking")
 
+    def test_meta_entry_mid_turn_is_thinking(self):
+        # скилл, картинка или ответ субагента посреди хода приходят user-записью с isMeta
+        self.assertEqual(self.state(user("x"), assistant(tool("Skill"), "tool_use"),
+                                    user([{"type": "tool_result", "content": "ok"}]),
+                                    user("Base directory for this skill…", isMeta=True)), "thinking")
+
+    def test_quoted_interrupt_is_not_interrupt(self):
+        quote = user([{"type": "tool_result", "content": 'grep "[Request interrupted" status.py'}])
+        self.assertEqual(self.state(user("x"), assistant(tool("Bash"), "tool_use"), quote), "thinking")
+        p._cache.clear()
+        real = user([{"type": "tool_result", "content": "[Request interrupted by user for tool use]"}])
+        self.assertEqual(self.state(user("x"), assistant(tool("Bash"), "tool_use"), real), "waiting")
+
+    def test_no_journal_has_no_start(self):
+        self.assertEqual(p.status("nope", T0), ("waiting", None))
+
+    def test_cancelled_compact_clears_marker(self):
+        os.makedirs(p.STATE_DIR)
+        marker = p.compact_marker("s1")
+        open(marker, "w").close()
+        os.utime(marker, (T0 + 10, T0 + 10))
+        self.journal(user("x"), assistant(TEXT, "end_turn"), user("дальше", T0 + 20))
+        self.assertEqual(p.status("s1", T0 + 25)[0], "thinking")
+        self.assertFalse(os.path.exists(marker))
+
+    def test_cache_forgets_idle_files(self):
+        self.journal(user("x"))
+        p.status("s1", T0 + 5)
+        self.assertTrue(p._cache)
+        for _ in range(p.CACHE_IDLE + 1):
+            p.cache_tick()
+        self.assertFalse(p._cache)
+
     def test_compacting_by_hook_marker(self):
         self.journal(user("x"), assistant(TEXT, "end_turn"))
         os.makedirs(p.STATE_DIR)
@@ -127,7 +161,8 @@ class Status(Sandbox):
         self.assertTrue(os.path.exists(p.compact_marker("s1")))
 
     def test_hook_ignores_garbage(self):
-        for payload in ("not json", "[1]", json.dumps({"hook_event_name": "PreCompact", "session_id": "../x"})):
+        for payload in ("not json", "[1]", json.dumps({"hook_event_name": "PreCompact", "session_id": "../x"}),
+                        json.dumps({"hook_event_name": "PreCompact", "session_id": None})):
             with self.subTest(payload):
                 self.run_hook(payload)      # не падает
         self.assertFalse(os.path.exists(p.STATE_DIR))
@@ -183,6 +218,25 @@ class Card(Sandbox):
         _, kind = self.build({"local_a": {"status": "waiting", "waitingFor": "input needed"}})
         self.assertEqual(kind, "thinking")
 
+    def test_launch_event(self):
+        words = "[думает]\nДумает\n[событие]\nReady or not? @запуск\n"
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write(words)
+        conf = dict(p.DEFAULTS, client_id="1")
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0 + 90,
+                                 active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
+                                 registry=lambda: {}, status=lambda cli, now, busy=False: ("thinking", T0)):
+            self.assertEqual(p.Presence(conf).build(T0 + 100)[0]["state"], "Ready or not?")
+
+    def test_no_journal_is_not_done_forever(self):
+        conf = dict(p.DEFAULTS, client_id="1")
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0,
+                                 active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "x"},
+                                 registry=lambda: {}, status=lambda cli, now, busy=False: ("waiting", None)):
+            card = p.Presence(conf)
+            self.assertEqual(card.build(T0 + 100)[1], "waiting")
+            self.assertEqual(card.build(T0 + 200)[1], "waiting")
+
     def test_card_fields(self):
         activity, _ = self.build({})
         self.assertEqual(activity["state"], "Думает…")
@@ -232,6 +286,18 @@ class Focus(Sandbox):
         self.log("session_01abc")
         self.assertTrue(p.active_session(self.at()).get("cloud"))
 
+    def test_focus_far_back_in_log(self):
+        self.session("local_a", "A")
+        self.session("local_b", "B")
+        self.log("local_b", name="main1.log")
+        self.log("local_a")
+        with open(f"{self.dir.name}/logs/main.log", "a") as fh:
+            fh.write("2026-10-01 21:01:00 [info] шум\n" * 60000)     # ~2 МБ без смены фокуса
+        self.assertEqual(p.active_session(self.at())["title"], "A")
+        with open(f"{self.dir.name}/logs/main.log", "a") as fh:     # дописано: читается только хвост
+            fh.write("2026-10-01 21:02:00 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_b\n")
+        self.assertEqual(p.active_session(self.at())["title"], "B")
+
     def test_rotated_log(self):
         self.session("local_a", "A")
         self.session("local_b", "B")
@@ -265,6 +331,27 @@ class Words(unittest.TestCase):
             fh.write("[ждёт]\nСамурай\n".encode("cp1251"))
         self.assertEqual(p.lines(fh.name), [])
         os.unlink(fh.name)
+
+    def test_conditions_are_strict(self):
+        w = p.parse_words(["[waiting]", "mail me@example.com", "odd @дольше ²", "never @переключение 0",
+                           "[event]", "never @переключение 0", "[thinking]", "late @3:45"])
+        self.assertIn(("mail me@example.com", "", None), w["waiting"])         # @ внутри текста — не условие
+        self.assertIn(("odd @дольше ²", "", None), w["waiting"])                # непонятное условие — часть фразы
+        self.assertEqual(w["thinking"], [("late", "03:45", None)])
+        with mock.patch("random.random", return_value=0.0):
+            self.assertIsNone(p.event_word(w, "switch"))                         # 0 % — никогда
+
+    def test_unreadable_hide_hides_everything(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = d + "/hide.txt"
+            self.assertFalse(p.hidden("Чат", path))                              # файла нет — ничего не скрыто
+            with open(path, "wb") as fh:
+                fh.write("Секрет\n".encode("cp1251"))
+            self.assertTrue(p.hidden("Чат", path))                               # не читается — скрыто всё
+            with open(path, "w", encoding="utf-8-sig") as fh:
+                fh.write("секрет\n")
+            self.assertTrue(p.hidden("Мой Секрет", path))                        # BOM не мешает
+            self.assertFalse(p.hidden("Чат", path))
 
     def test_longer_takes_largest_threshold(self):
         w = p.parse_words(["[waiting]", "plain", "a @longer 30", "b @longer 60"])
@@ -304,6 +391,28 @@ class Words(unittest.TestCase):
         long = p.clip("😀" * 100)                 # 200 единиц UTF-16
         self.assertLessEqual(len(long.encode("utf-16-le")), 256)
         self.assertTrue(long.endswith("…"))
+
+
+class Config(unittest.TestCase):
+    def load(self, text, raw=None):
+        with tempfile.TemporaryDirectory() as d:
+            with open(d + "/config.toml", "wb") as fh:
+                fh.write(raw if raw is not None else text.encode())
+            with mock.patch.object(p, "CONF_DIR", d), mock.patch("sys.stderr"):
+                return p.config()
+
+    def test_valid(self):
+        self.assertEqual(self.load('client_id = "123"\nstate_icons = true\n')["state_icons"], True)
+
+    def test_errors_exit_with_config_code(self):
+        bad = ['client_id = ""', 'client_id = "abc"', 'client_id = "1"\nbuttons = { label = "x", url = "https://x" }',
+               'client_id = "1"\nstatus_display = "big"', 'client_id = "1"\nstate_icons = "yes"', 'client_id = = 1']
+        for text in bad:
+            with self.subTest(text), self.assertRaises(SystemExit) as e:
+                self.load(text)
+            self.assertEqual(e.exception.code, p.EX_CONFIG)
+        with self.assertRaises(SystemExit):
+            self.load("", raw='client_id = "1"\ntitle_untitled = "Без"\n'.encode("cp1251"))
 
 
 class FakeDiscord:
@@ -362,10 +471,16 @@ class DiscordIPC(unittest.TestCase):
             dc.set({"state": "x"})
         self.assertIsNotNone(dc.sock)
 
-    def test_invalid_client_id_message(self):
+    def test_invalid_client_id(self):
         self.fake((2, {"code": 4000, "message": "Invalid Client ID"}))
-        with self.assertRaisesRegex(ConnectionError, "Invalid Client ID"):
+        with self.assertRaisesRegex(p.InvalidClient, "Invalid Client ID"):
             p.Discord("bad").connect()
+
+    def test_link_reports_reconnect(self):
+        self.fake((1, {"evt": "READY"}), (1, {"evt": None}))
+        link = p.Link("123")
+        self.addCleanup(link.dc.close)
+        self.assertTrue(link.update({"state": "x"}, T0).startswith("подключился к Discord"))
 
     def test_link_keeps_rejected_card(self):
         srv = self.fake((1, {"evt": "READY"}), (1, {"evt": "ERROR", "data": {"message": "bad"}}))
