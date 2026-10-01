@@ -106,7 +106,7 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Thinking | always | |
 | Generating | always | |
 | Seems hard | always | The Cardigans, "Seems Hard" (Emmerdale) |
-| I figured out | always | The Cardigans, "I Figured Out" (The Other Side of the Moon) |
+| I figured out | always | The Cardigans, "I Figured Out", a B-side of the "Black Letter Day" single (compilation The Other Side of the Moon) |
 | Great Divide | always | The Cardigans, "Great Divide" (First Band on the Moon) |
 | Becoming human | always | the game Detroit: Become Human |
 | Software instability ▲ | always | Detroit: Become Human, Connor's software indicator |
@@ -153,7 +153,7 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Waiting for a reply | always | |
 | Hanging around | always | The Cardigans, "Hanging Around" (Gran Turismo) |
-| Never fade away | always | Cyberpunk 2077, SAMURAI's "Never Fade Away" |
+| Never fade away | always | Cyberpunk 2077, SAMURAI's "Never Fade Away" (and the soundtrack cover sung by Olga Jankowska) |
 | Are you here? Give us a sign | always | the game Phasmophobia, a question to the ghost |
 | Hotel Hendrix awaits guests | always | Altered Carbon, the AI hotel |
 | Night City | at night | Cyberpunk 2077, Night City |

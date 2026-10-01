@@ -106,7 +106,7 @@
 | Думает | всегда | |
 | Генерирует | всегда | |
 | Seems hard | всегда | The Cardigans, песня «Seems Hard» (альбом Emmerdale) |
-| I figured out | всегда | The Cardigans, песня «I Figured Out» (The Other Side of the Moon) |
+| I figured out | всегда | The Cardigans, «I Figured Out», би-сайд сингла «Black Letter Day» (сборник The Other Side of the Moon) |
 | Делит на части | всегда | The Cardigans, песня «Great Divide» (First Band on the Moon) |
 | Становится человеком | всегда | игра Detroit: Become Human |
 | Нестабильность ПО ▲ | всегда | Detroit: Become Human, индикатор программы Коннора |
@@ -153,7 +153,7 @@
 |---|---|---|
 | Ждёт ответа | всегда | |
 | Hanging around | всегда | The Cardigans, песня «Hanging Around» (Gran Turismo) |
-| Never fade away | всегда | Cyberpunk 2077, песня SAMURAI «Never Fade Away» |
+| Never fade away | всегда | Cyberpunk 2077, песня SAMURAI «Never Fade Away» (и кавер из саундтрека, поёт Ольга Янковская) |
 | Ты здесь? Подай знак | всегда | игра Phasmophobia, вопрос к призраку |
 | Отель «Хендрикс» ждёт гостей | всегда | «Видоизменённый углерод», отель с ИИ |
 | Night City | ночью | Cyberpunk 2077, Найт-Сити |
