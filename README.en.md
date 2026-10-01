@@ -18,7 +18,7 @@
 > | written but untested | Discord socket paths for Flatpak, Snap and Vesktop; waiting for a permission prompt |
 > | not supported | macOS, Windows, Claude Code in a terminal without Desktop |
 >
-> **The code was written by an AI:** Claude, on a human's tasks and with a human's edits. [More](#written-with-ai).
+> **The code was written by an AI:** Claude, on the author's tasks and with the author's edits. [More](#written-with-ai).
 >
 > The script reads internal files of Claude Desktop and Claude Code. They are not a public interface and an update may change them.
 
@@ -236,7 +236,7 @@ The installer never overwrites your `words.txt`; see new phrases with `diff word
 
 ## Written with AI
 
-The code, the tests and the README were written by Claude in Claude Code. A human decided what to show, came up with the easter eggs and tested everything on a real Discord. Before publishing, the code went through an audit by independent agents and everything found was fixed. 41 automated tests run on synthetic transcripts and a fake Discord: `python3 -m unittest discover -s tests`.
+The code, the tests and the README were written by Claude in Claude Code. The author, [tomon-one](https://github.com/tomon-one), decided what to show, came up with the easter eggs and tested everything on a real Discord. Before publishing, the code went through an audit by independent agents and everything found was fixed. 41 automated tests run on synthetic transcripts and a fake Discord: `python3 -m unittest discover -s tests`.
 
 ---
 
