@@ -143,6 +143,15 @@ class Status(Sandbox):
             p.cache_tick()
         self.assertFalse(p._cache)
 
+    def test_background_agents(self):
+        d = f"{self.dir.name}/projects/p/s1/subagents/workflows/wf_1"
+        os.makedirs(d)
+        open(d + "/agent-a.jsonl", "w").close()
+        os.utime(d + "/agent-a.jsonl", (T0, T0))
+        self.assertTrue(p.background("s1", T0 + 10))
+        self.assertFalse(p.background("s1", T0 + p.BACKGROUND + 1))
+        self.assertFalse(p.background("other", T0 + 10))
+
     def test_compacting_by_hook_marker(self):
         self.journal(user("x"), assistant(TEXT, "end_turn"))
         os.makedirs(p.STATE_DIR)
@@ -236,6 +245,18 @@ class Card(Sandbox):
             card = p.Presence(conf)
             self.assertEqual(card.build(T0 + 100)[1], "waiting")
             self.assertEqual(card.build(T0 + 200)[1], "waiting")
+
+    def test_background_state_after_turn(self):
+        conf = dict(p.DEFAULTS, client_id="1", state_icons=True)
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write("[фон]\nРазмножается, как агент Смит\n")
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0,
+                                 active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
+                                 registry=lambda: {}, background=lambda cli, now: True,
+                                 status=lambda cli, now, busy=False: ("waiting", T0 + 90)):
+            activity, kind = p.Presence(conf).build(T0 + 100)
+        self.assertEqual((kind, activity["state"], activity["assets"]["small_image"]),
+                         ("background", "Размножается, как агент Смит…", "background"))
 
     def test_card_fields(self):
         activity, _ = self.build({})

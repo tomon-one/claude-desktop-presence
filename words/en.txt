@@ -1,6 +1,6 @@
 # Second line of the Discord card. Sections are states, one phrase per line.
 # States: thinking, coding (editing files), done (30 s after a reply), waiting,
-# choice (asked a multiple-choice question), permission (waiting for permission), nochat (no chat open), event, error, compacting (needs the PreCompact hook).
+# choice (asked a multiple-choice question), permission (waiting for permission), background (turn over, background agents still working), nochat (no chat open), event, error, compacting (needs the PreCompact hook).
 # Easter egg with a condition: "phrase @condition". Conditions:
 #   @night         — joins the pool from 23:00 to 05:00
 #   @03:45         — only during that minute, instead of the others
@@ -58,6 +58,13 @@ Do you believe?
 If there is a chance
 Asking for a drop
 Awaiting orders
+
+[background]
+# the turn is over, but background agents (Agent, Workflow) are still working
+Multiplying like Agent Smith
+Double-sleeved
+Handing out gigs
+Assembling the crew
 
 [nochat]
 In the lobby

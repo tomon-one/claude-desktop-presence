@@ -33,7 +33,7 @@
 Discord doesn't show Claude by itself. On Linux you can add it by hand as a game, but the card stays empty with a question mark. This program brings it to life:
 
 - **first line:** the open chat, or "Main menu" when none is selected;
-- **second line:** what Claude is doing: thinking, editing files, asking a question, waiting for permission, just replied, waiting for you, hit an error or compacting the context. Each state has its own phrases, most of them easter eggs;
+- **second line:** what Claude is doing: thinking, editing files, asking a question, waiting for permission, just replied, waiting for you, running background agents, hit an error or compacting the context. Each state has its own phrases, most of them easter eggs;
 - **timer:** how long Claude Desktop has been open.
 
 Model, tokens and limits are left out on purpose. If you need them, there are [rar-file/claude-rpc](https://github.com/rar-file/claude-rpc) and [BrunoJurkovic/claude-code-discord-status](https://github.com/BrunoJurkovic/claude-code-discord-status), but they are for Claude Code, not Desktop.
@@ -162,6 +162,15 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Wake up, Samurai | over 30 minutes | Cyberpunk 2077, Johnny Silverhand |
 | Waiting like Vice City waits for GTA VI | over an hour | GTA VI, the return to Vice City |
 | Rise & shine | first wait of the morning | The Cardigans, "Rise & Shine" (Emmerdale) |
+
+**Background agents at work** (the turn is over, but agents or a workflow are still running)
+
+| phrase | when | reference |
+|---|---|---|
+| Multiplying like Agent Smith | always | the film The Matrix, Agent Smith |
+| Double-sleeved | always | Richard K. Morgan, Altered Carbon: Kovacs in two bodies at once |
+| Handing out gigs | always | Cyberpunk 2077, fixers |
+| Assembling the crew | always | Cyberpunk: Edgerunners, Maine's crew |
 
 **No chat selected**
 

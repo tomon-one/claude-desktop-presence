@@ -26,6 +26,7 @@ NO_CHAT = 5         # null мелькает и при переключении �
 STALE = 600         # журнал молчит дольше — Claude завис или упал
 DONE = 30
 EVENT = 60
+BACKGROUND = 60     # субагенты писали в свои журналы недавно — значит, работают в фоне
 RETRY_MAX = 60      # пауза между поисками Discord растёт до этой
 FAILS_CLEAR = 3     # столько опросов подряд со сбоем — снять карточку, а не держать устаревшую
 CACHE_IDLE = 50     # опросов без обращения — запись кэша выбрасывается
@@ -42,13 +43,15 @@ EX_CONFIG = 78      # ошибка в настройках — systemd не пе
 # words.txt: русские имена разделов и условий → внутренние
 SECTIONS = {"думает": "thinking", "код": "coding", "выбор": "choice", "разрешение": "permission",
             "готово": "done", "ждёт": "waiting",
-            "ошибка": "error", "сжатие": "compacting", "без чата": "nochat", "событие": "event"}
+            "ошибка": "error", "сжатие": "compacting", "без чата": "nochat", "событие": "event",
+            "фон": "background"}
 CONDS = {"ночь": "night", "утро": "morning", "дольше": "longer", "шанс": "chance",
          "запуск": "launch", "переключение": "switch"}
 FALLBACK = {"thinking": "Thinking", "coding": "Coding", "choice": "Waiting for a choice",
             "permission": "Waiting for permission", "done": "Done",
-            "waiting": "Waiting", "error": "Error", "compacting": "Compacting", "nochat": "Idle"}
-ELLIPSIS = {"thinking", "coding", "compacting"}
+            "waiting": "Waiting", "error": "Error", "compacting": "Compacting", "nochat": "Idle",
+            "background": "Agents at work"}
+ELLIPSIS = {"thinking", "coding", "compacting", "background"}
 STATUS_DISPLAY = {"name": 0, "state": 1, "details": 2}
 
 DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words": "words.txt", "hide": "hide.txt",
@@ -330,6 +333,13 @@ def mtime(path):
         return None
 
 
+def background(cli_id, now):
+    """Ход окончен, но фоновые агенты (Agent, Workflow) этой сессии ещё пишут свои журналы."""
+    newest = max((mtime(f) or 0 for d in glob.glob(TRANSCRIPTS.format(cli_id)[:-6] + "/subagents")
+                  for f in glob.glob(d + "/**/*.jsonl", recursive=True)), default=0)
+    return now - newest < BACKGROUND
+
+
 def status(cli_id, now, busy=False):
     """(состояние, с какого момента): thinking / coding / choice / waiting / error / compacting.
     busy — реестр говорит, что ход идёт: тогда долгое молчание журнала (длинная команда) не «ждёт»."""
@@ -544,6 +554,8 @@ class Presence:
             kind, since = status(s.get("cliSessionId"), now, busy=reg.get("status") == "busy")
             if reg.get("status") == "waiting" and reg.get("waitingFor") in PERMISSION:
                 kind, since = "permission", (num(reg.get("statusUpdatedAt")) or now * 1000) / 1000
+            elif kind == "waiting" and background(s.get("cliSessionId"), now):
+                kind = "background"
             elif kind == "waiting" and since and now - since < DONE:
                 kind = "done"
 

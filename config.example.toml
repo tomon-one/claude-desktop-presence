@@ -11,7 +11,7 @@ image_text = "Claude"
 status_display = "name"
 
 # Маленький значок состояния в углу картинки. Сначала загрузи в Art Assets картинки из docs/icons
-# с ключами по именам файлов (thinking, coding, choice, permission, done, waiting, error, compacting, nochat).
+# с ключами по именам файлов (thinking, coding, choice, permission, done, waiting, error, compacting, nochat, background).
 state_icons = false
 
 # До двух кнопок в карточке, только https. Себе Discord их не показывает, их видят другие.
