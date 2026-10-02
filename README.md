@@ -1,6 +1,6 @@
 # claude-desktop-presence
 
-**Карточка Discord для Claude Desktop на Linux.** Показывает, какой чат открыт и чем Claude занят, а вместо скучного «думает» пишет пасхалки из песен, игр и книг.
+**Карточка Discord для Claude Desktop на Linux.** Показывает, какой чат открыт и чем Claude занят, а вместо скучного «думает» пишет пасхалки из песен, игр, книг и про самого Claude с его талисманом Clawd.
 
 ![Linux](https://img.shields.io/badge/Linux-systemd-333) ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB) ![без зависимостей](https://img.shields.io/badge/%D0%B7%D0%B0%D0%B2%D0%B8%D1%81%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D0%B5%D0%B9-0-success) ![MIT](https://img.shields.io/badge/%D0%BB%D0%B8%D1%86%D0%B5%D0%BD%D0%B7%D0%B8%D1%8F-MIT-blue)
 
@@ -12,7 +12,7 @@
 
 > ### Прочитайте до установки
 >
-> **Версия 0.1.1 «Sandevistan».** [Что нового](https://github.com/tomon-one/claude-desktop-presence/releases).
+> **Версия 0.1.2 «Sandevistan».** [Что нового](https://github.com/tomon-one/claude-desktop-presence/releases).
 >
 > | | |
 > |---|---|
@@ -269,7 +269,7 @@ git pull
 ./install.sh
 ```
 
-Свой `words.txt` установщик не перезаписывает, а русские подсказки к значкам дописывает, если их ещё нет. Новые фразы видны командой `diff words/ru.txt ~/.config/claude-desktop-presence/words.txt`. Удалить: `./install.sh --uninstall` (службу, скрипт и хук; настройки остаются).
+Свой `words.txt` установщик не перезаписывает, а русские подсказки к значкам дописывает, если их ещё нет. Новые фразы видны командой `diff words/ru.txt ~/.config/claude-desktop-presence/words.txt`; если свой файл ты не правил, проще взять новый целиком: `cp words/ru.txt ~/.config/claude-desktop-presence/words.txt`. Удалить: `./install.sh --uninstall` (службу, скрипт и хук; настройки остаются).
 
 ---
 

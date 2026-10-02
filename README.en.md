@@ -1,6 +1,6 @@
 # claude-desktop-presence
 
-**A Discord card for Claude Desktop on Linux.** It shows which chat is open and what Claude is busy with, and instead of a plain "thinking" it shows easter eggs from songs, games and books.
+**A Discord card for Claude Desktop on Linux.** It shows which chat is open and what Claude is busy with, and instead of a plain "thinking" it shows easter eggs from songs, games, books and about Claude itself and its mascot Clawd.
 
 ![Linux](https://img.shields.io/badge/Linux-systemd-333) ![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB) ![dependencies](https://img.shields.io/badge/dependencies-0-success) ![MIT](https://img.shields.io/badge/license-MIT-blue)
 
@@ -12,7 +12,7 @@
 
 > ### Read before installing
 >
-> **Version 0.1.1 "Sandevistan".** [What's new](https://github.com/tomon-one/claude-desktop-presence/releases).
+> **Version 0.1.2 "Sandevistan".** [What's new](https://github.com/tomon-one/claude-desktop-presence/releases).
 >
 > | | |
 > |---|---|
@@ -269,7 +269,7 @@ git pull
 ./install.sh --lang en
 ```
 
-The installer never overwrites your `words.txt`; see new phrases with `diff words/en.txt ~/.config/claude-desktop-presence/words.txt`. To uninstall: `./install.sh --uninstall` (service, script and hook; settings stay).
+The installer never overwrites your `words.txt`; see new phrases with `diff words/en.txt ~/.config/claude-desktop-presence/words.txt`; if you never edited yours, just take the new one: `cp words/en.txt ~/.config/claude-desktop-presence/words.txt`. To uninstall: `./install.sh --uninstall` (service, script and hook; settings stay).
 
 ---
 
