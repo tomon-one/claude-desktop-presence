@@ -97,6 +97,7 @@ Phrases live in `words.txt`, grouped by section, one per line. A condition goes 
 | `@longer 30` | the state has lasted over 30 minutes. Alternates with regular phrases; with several thresholds the largest wins |
 | `@morning` | the first wait of the morning, from 5 to 12. Alternates with regular phrases |
 | `@chance 25` | 25 % chance on entering the state. Alternates with regular phrases |
+| `@session 8` | the chat was created over 8 hours ago. Alternates with regular phrases |
 | `@launch` | `[event]` section only: the first minute after Claude Desktop starts |
 | `@switch 15` | `[event]` section only: 15 % chance on switching chats, for one minute |
 
@@ -120,6 +121,11 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | 03:45: No Sleep | at 03:45 | The Cardigans, "03:45: No Sleep" (Long Gone Before Daylight) |
 | Overloaded | over 5 minutes | The Cardigans, "Overload" (Super Extra Gravity) |
 | Cyberpsychosis creeping in | over 15 minutes | the game Cyberpunk 2077 |
+| Clauding | always | Claude Code, a spinner word |
+| Thinking about the Golden Gate Bridge | always | Golden Gate Claude, Anthropic's 2024 experiment |
+| Clawd rides a cloud | always | Clawd, the official cloud scene |
+| Ultrathink | over 10 minutes | Claude Code, the keyword for the deepest thinking |
+| Tokens aren't infinite | chat open over 8 hours | |
 
 **Editing files**
 
@@ -127,12 +133,16 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Investigating like Kovacs | always | Richard K. Morgan, the novel Altered Carbon, Takeshi Kovacs |
 | Push B non stop | always | Counter-Strike 2, rushing B |
+| Combobulating | always | Claude Code, a spinner word |
+| Clawd types on his laptop | always | Clawd, the official laptop animation |
 
 **Asked a multiple-choice question**
 
 | phrase | when | reference |
 |---|---|---|
 | Red pill or blue pill? | always | the film The Matrix |
+| Needs a clarification | always | |
+| Clawd looks left, then right | always | Clawd, the look-around animation |
 
 **Waiting for permission to run a tool**
 
@@ -142,6 +152,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | If there is a chance | always | The Cardigans, "If There Is a Chance" (Long Gone Before Daylight) |
 | Asking for a drop | always | Counter-Strike 2, asking a teammate to drop a weapon |
 | Awaiting orders | always | Detroit: Become Human, androids awaiting instructions |
+| Do you want to proceed? | always | Claude Code, the permission prompt |
+| Clawd waves | always | Clawd, the official waving animation |
 
 **Just replied** (30 seconds after a reply)
 
@@ -149,6 +161,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Done | always | |
 | Breathtaking | 25 % chance | Keanu Reeves at E3 2019: "You're breathtaking!" |
+| You're absolutely right! | always | the Claude meme |
+| Clawd dances | always | Clawd, the official dance |
 
 **Waiting**
 
@@ -165,6 +179,9 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Wake up, Samurai | over 30 minutes | Cyberpunk 2077, Johnny Silverhand |
 | Waiting like Vice City waits for GTA VI | over an hour | GTA VI, the return to Vice City |
 | Rise & shine | first wait of the morning | The Cardigans, "Rise & Shine" (Emmerdale) |
+| Stuck in Mt. Moon | always | the Claude Plays Pokémon stream |
+| Clawd hits the gym | always | Clawd, the dumbbell clip |
+| Cache went cold | over 75 minutes | Claude Code suggests /clear after 75 idle minutes |
 
 **Background agents at work** (the turn is over, but agents or a workflow are still running)
 
@@ -175,6 +192,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Awakening androids | always | Detroit: Become Human, Markus |
 | Spread the team across sites | always | Counter-Strike 2 |
 | Split up, hunting the ghost | always | the game Phasmophobia |
+| Claude, Claude and more Claude | always | subagents are Claude too |
+| Clawd waves a flag | always | Clawd, the flag clip |
 
 **No chat selected**
 
@@ -184,6 +203,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Press any key | always | |
 | Waiting for player 2 | always | |
 | Roaming Night City | at night | Cyberpunk 2077 |
+| Welcome to Claude Code! | always | Claude Code, the greeting |
+| Clawd kicks a ball | always | Clawd on the Claude Code start screen in summer 2026 |
 
 **Event** (for one minute, on top of any state)
 
@@ -191,6 +212,7 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Ready or not? | the first minute after Claude Desktop starts | Cascada, "Ready or Not" (Evacuate the Dancefloor), and the game Ready or Not |
 | Ready or not? | 15 % chance on switching chats | same |
+| Clawd plays the guitar | the first minute after Claude Desktop starts | Clawd on the Claude FM stream and in ultracode |
 
 **Error**
 
@@ -199,6 +221,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Black Letter Day | always | The Cardigans, "Black Letter Day" (Emmerdale) |
 | Wasted | always | the GTA series, the death screen |
 | Never Recover | always | The Cardigans, "Never Recover" (First Band on the Moon) |
+| 529 Overloaded | always | Claude API error under load |
+| Detective Clawd hunts the bug | always | Clawd, the official detective scene |
 
 **Compacting the context**
 
@@ -208,6 +232,8 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | New sleeve, stack intact | always | Altered Carbon: the body changes, the mind in the stack stays |
 | Eco round, saving for an AWP | always | Counter-Strike 2 |
 | Erase/Rewind | always | The Cardigans, "Erase/Rewind" (Gran Turismo) |
+| Compacting conversation | always | Claude Code, the text shown while compacting |
+| Clawd walks sideways | always | Clawd, the official loading animation |
 
 ---
 

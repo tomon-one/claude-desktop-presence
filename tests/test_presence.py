@@ -396,6 +396,12 @@ class Words(unittest.TestCase):
         self.assertEqual(p.pick(None, ex, sp, pool), "egg")
         self.assertEqual(p.pick("egg", ex, sp, pool), "plain")
 
+    def test_session_age(self):
+        w = p.parse_words(["[думает]", "Думает", "Токены не резиновые @сессия 8"])
+        self.assertEqual(p.candidates(w, "thinking", T0, False, set(), T0, T0 - 9 * 3600)[1], ["Токены не резиновые"])
+        self.assertEqual(p.candidates(w, "thinking", T0, False, set(), T0, T0 - 3600)[1], [])
+        self.assertEqual(p.candidates(w, "thinking", T0, False, set(), T0)[1], [])     # время создания неизвестно
+
     def test_chance_rolled_once_per_state(self):
         w = p.parse_words(["[done]", "Done", "Breathtaking @chance 25"])
         with mock.patch("random.random", return_value=0.1):

@@ -7,6 +7,7 @@
 #   @longer 5      — state lasts longer than 5 minutes; alternates with the regular ones (largest threshold wins)
 #   @morning       — first wait of the morning (05–12); alternates with the regular ones
 #   @chance 25     — 25 % chance on entering the state; alternates with the regular ones
+#   @session 8     — the chat was created over 8 hours ago; alternates with the regular ones
 #   @launch        — [event]: first minute after Claude Desktop starts
 #   @switch 15     — [event]: 15 % chance on switching chats, for a minute
 # The phrase changes every 30 s and on every state/chat change. "…" is added to thinking/coding/compacting.
@@ -27,14 +28,23 @@ Long gone before daylight @night
 03:45: No Sleep @03:45
 Overloaded @longer 5
 Cyberpsychosis creeping in @longer 15
+Clauding
+Thinking about the Golden Gate Bridge
+Clawd rides a cloud
+Ultrathink @longer 10
+Tokens aren't infinite @session 8
 
 [coding]
 Investigating like Kovacs
 Push B non stop
+Combobulating
+Clawd types on his laptop
 
 [done]
 Done
 Breathtaking @chance 25
+You're absolutely right!
+Clawd dances
 
 [waiting]
 Waiting for a reply
@@ -48,9 +58,14 @@ Waiting 5:08 without pressing anything @05:08
 Wake up, Samurai @longer 30
 Waiting like Vice City waits for GTA VI @longer 60
 Rise & shine @morning
+Stuck in Mt. Moon
+Clawd hits the gym
+Cache went cold @longer 75
 
 [choice]
 Red pill or blue pill?
+Needs a clarification
+Clawd looks left, then right
 
 [permission]
 # Claude waits for permission to run a tool
@@ -58,6 +73,8 @@ Do you believe?
 If there is a chance
 Asking for a drop
 Awaiting orders
+Do you want to proceed?
+Clawd waves
 
 [background]
 # the turn is over, but background agents (Agent, Workflow) are still working
@@ -66,24 +83,33 @@ Daemons running
 Awakening androids
 Spread the team across sites
 Split up, hunting the ghost
+Claude, Claude and more Claude
+Clawd waves a flag
 
 [nochat]
 In the lobby
 Press any key
 Waiting for player 2
 Roaming Night City @night
+Welcome to Claude Code!
+Clawd kicks a ball
 
 [event]
 Ready or not? @launch
 Ready or not? @switch 15
+Clawd plays the guitar @launch
 
 [error]
 Black Letter Day
 Wasted
 Never Recover
+529 Overloaded
+Detective Clawd hunts the bug
 
 [compacting]
 Compressed, not defeated
 New sleeve, stack intact
 Eco round, saving for an AWP
 Erase/Rewind
+Compacting conversation
+Clawd walks sideways

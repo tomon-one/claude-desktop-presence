@@ -46,7 +46,7 @@ SECTIONS = {"думает": "thinking", "код": "coding", "выбор": "choic
             "ошибка": "error", "сжатие": "compacting", "без чата": "nochat", "событие": "event",
             "фон": "background"}
 CONDS = {"ночь": "night", "утро": "morning", "дольше": "longer", "шанс": "chance",
-         "запуск": "launch", "переключение": "switch"}
+         "запуск": "launch", "переключение": "switch", "сессия": "session"}
 FALLBACK = {"thinking": "Thinking", "coding": "Coding", "choice": "Waiting for a choice",
             "permission": "Waiting for permission", "done": "Done",
             "waiting": "Waiting", "error": "Error", "compacting": "Compacting", "nochat": "Idle",
@@ -452,8 +452,8 @@ def in_hours(hour, span):
     return a <= hour < b if a < b else hour >= a or hour < b
 
 
-def candidates(words, kind, since, morning, lucky, now):
-    """(только они, через раз, обычные): @ЧЧ:ММ — только они; @утро/@шанс/@дольше — через раз
+def candidates(words, kind, since, morning, lucky, now, session=None):
+    """(только они, через раз, обычные): @ЧЧ:ММ — только они; @утро/@шанс/@дольше/@сессия — через раз
     с обычными; @ночь — в общий пул. Из «@дольше N» — самый большой выполненный порог."""
     clock = datetime.datetime.fromtimestamp(now)
     exclusive, special, pool, longest = [], [], [], (0, [])
@@ -465,6 +465,9 @@ def candidates(words, kind, since, morning, lucky, now):
                 pool.append(word)
         elif cond == "morning":
             if morning:
+                special.append(word)
+        elif cond == "session":     # чат создан больше N часов назад
+            if session and now - session > (n or 0) * 3600:
                 special.append(word)
         elif cond == "chance":
             if word in lucky:
@@ -573,7 +576,8 @@ class Presence:
             self.kind, self.kind_at, self.word, self.lucky = kind, now, None, roll_chance(words, kind)
         since = since or self.kind_at       # без журнала и без чата — с момента входа в состояние
         morning = self.morning and in_hours(clock.hour, MORNING)
-        exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now)
+        created = num(s.get("createdAt")) / 1000 or None
+        exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now, created)
         if self.word not in (exclusive or special + pool) or now - self.word_at > WORD_EVERY:
             self.word, self.word_at = pick(self.word, exclusive, special, pool), now
 
