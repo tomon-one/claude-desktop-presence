@@ -258,6 +258,10 @@ class Card(Sandbox):
         self.assertEqual((kind, activity["state"], activity["assets"]["small_image"]),
                          ("background", "Размножается, как агент Смит…", "background"))
 
+    def test_icon_label_from_config(self):
+        activity, _ = self.build({}, state_icons=True, labels={"thinking": "Думает"})
+        self.assertEqual(activity["assets"]["small_text"], "Думает")
+
     def test_card_fields(self):
         activity, _ = self.build({})
         self.assertEqual(activity["state"], "Думает…")
@@ -270,6 +274,7 @@ class Card(Sandbox):
                                  buttons=[{"label": "GitHub", "url": "https://github.com/x"},
                                           {"label": "bad", "url": "javascript:1"}])
         self.assertEqual(activity["assets"]["small_image"], "thinking")
+        self.assertEqual(activity["assets"]["small_text"], "Thinking")
         self.assertEqual(activity["status_display_type"], 1)
         self.assertEqual(activity["buttons"], [{"label": "GitHub", "url": "https://github.com/x"}])
 

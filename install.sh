@@ -85,6 +85,18 @@ title_no_chat = "Главное меню"
 title_cloud = "Облачная сессия"
 title_private = "Приватная сессия"
 title_untitled = "Без названия"
+# Подсказка при наведении на значок состояния (state_icons), простыми словами.
+[labels]
+thinking = "Думает"
+coding = "Правит файлы"
+choice = "Задал вопрос"
+permission = "Ждёт разрешения"
+done = "Ответил"
+waiting = "Ждёт ответа"
+error = "Ошибка"
+compacting = "Сжимает контекст"
+nochat = "Чат не выбран"
+background = "Работают фоновые агенты"
 EOF
 fi
 if [[ ! -e $conf/words.txt ]]; then

@@ -51,11 +51,15 @@ FALLBACK = {"thinking": "Thinking", "coding": "Coding", "choice": "Waiting for a
             "permission": "Waiting for permission", "done": "Done",
             "waiting": "Waiting", "error": "Error", "compacting": "Compacting", "nochat": "Idle",
             "background": "Agents at work"}
+LABELS = {"thinking": "Thinking", "coding": "Editing files", "choice": "Asked a question",
+          "permission": "Waiting for permission", "done": "Replied", "waiting": "Waiting for you",
+          "error": "Error", "compacting": "Compacting context", "nochat": "No chat open",
+          "background": "Background agents at work"}   # подсказка у значка состояния, без пасхалок
 ELLIPSIS = {"thinking", "coding", "compacting", "background"}
 STATUS_DISPLAY = {"name": 0, "state": 1, "details": 2}
 
 DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words": "words.txt", "hide": "hide.txt",
-            "status_display": "name", "state_icons": False, "buttons": [], "title_no_chat": "Main menu", "title_cloud": "Cloud session",
+            "status_display": "name", "state_icons": False, "labels": {}, "buttons": [], "title_no_chat": "Main menu", "title_cloud": "Cloud session",
             "title_private": "Private session", "title_untitled": "Untitled"}
 
 
@@ -83,6 +87,8 @@ def config():
             fail(f"{key}: ожидается {type(default).__name__}")
     if not str(conf["client_id"]).isdecimal():
         fail("client_id — Application ID приложения Discord, только цифры")
+    if not all(isinstance(v, str) for v in conf["labels"].values()):
+        fail("labels: подписи должны быть строками")
     if conf["status_display"] not in STATUS_DISPLAY:
         fail(f"status_display: одно из {', '.join(STATUS_DISPLAY)}")
     return conf
@@ -577,6 +583,7 @@ class Presence:
                     "assets": {"large_image": conf["image"], "large_text": clip(conf["image_text"])}}
         if conf["state_icons"]:
             activity["assets"]["small_image"] = kind    # ключ в Art Assets = имя состояния, см. docs/icons
+            activity["assets"]["small_text"] = clip(conf["labels"].get(kind) or LABELS.get(kind))
         if STATUS_DISPLAY.get(conf["status_display"]):
             activity["status_display_type"] = STATUS_DISPLAY[conf["status_display"]]
         buttons = [{"label": str(b["label"]).strip()[:32], "url": b["url"]} for b in conf["buttons"]

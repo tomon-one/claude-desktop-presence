@@ -22,3 +22,4 @@ words = "words.txt"
 hide = "hide.txt"
 
 # Titles for special cases (defaults: "Main menu", "Cloud session", "Private session", "Untitled").
+# Icon tooltips can be changed in a [labels] table at the end: thinking = "Thinking", coding = "Editing files", …

@@ -76,6 +76,7 @@ Optional settings in `config.toml`:
 |---|---|
 | `status_display = "state"` | the server member list shows the phrase under your name instead of the app name |
 | `state_icons = true` | a state icon in the corner of the image. Icons are in [docs/icons](docs/icons); upload them to Art Assets with the file names as keys |
+| `[labels]` | the tooltip on the state icon: what Claude is doing, in plain words |
 | `buttons` | up to two link buttons; other people see them, you don't |
 
 After editing `config.toml`: `systemctl --user restart claude-desktop-presence`. Log: `journalctl --user -u claude-desktop-presence -f`.
@@ -169,6 +170,9 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 |---|---|---|
 | Multiplying like Agent Smith | always | the film The Matrix, Agent Smith |
 | Daemons running | always | Cyberpunk 2077, netrunner daemons; also what Linux calls background processes |
+| Awakening androids | always | Detroit: Become Human, Markus |
+| Spread the team across sites | always | Counter-Strike 2 |
+| Split up, hunting the ghost | always | the game Phasmophobia |
 
 **No chat selected**
 

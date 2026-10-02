@@ -63,6 +63,9 @@ Awaiting orders
 # the turn is over, but background agents (Agent, Workflow) are still working
 Multiplying like Agent Smith
 Daemons running
+Awakening androids
+Spread the team across sites
+Split up, hunting the ghost
 
 [nochat]
 In the lobby
