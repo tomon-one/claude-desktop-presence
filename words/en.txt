@@ -62,6 +62,7 @@ Awaiting orders
 [background]
 # the turn is over, but background agents (Agent, Workflow) are still working
 Multiplying like Agent Smith
+Daemons running
 
 [nochat]
 In the lobby

@@ -168,6 +168,7 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | phrase | when | reference |
 |---|---|---|
 | Multiplying like Agent Smith | always | the film The Matrix, Agent Smith |
+| Daemons running | always | Cyberpunk 2077, netrunner daemons; also what Linux calls background processes |
 
 **No chat selected**
 
