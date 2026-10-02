@@ -168,9 +168,6 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | phrase | when | reference |
 |---|---|---|
 | Multiplying like Agent Smith | always | the film The Matrix, Agent Smith |
-| Double-sleeved | always | Richard K. Morgan, Altered Carbon: Kovacs in two bodies at once |
-| Handing out gigs | always | Cyberpunk 2077, fixers |
-| Assembling the crew | always | Cyberpunk: Edgerunners, Maine's crew |
 
 **No chat selected**
 

@@ -62,9 +62,6 @@ Awaiting orders
 [background]
 # the turn is over, but background agents (Agent, Workflow) are still working
 Multiplying like Agent Smith
-Double-sleeved
-Handing out gigs
-Assembling the crew
 
 [nochat]
 In the lobby
