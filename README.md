@@ -12,6 +12,8 @@
 
 > ### Прочитайте до установки
 >
+> **Версия 0.1.1 «Sandevistan».** [Что нового](https://github.com/tomon-one/claude-desktop-presence/releases).
+>
 > | | |
 > |---|---|
 > | проверено каждый день | Fedora 44, Hyprland 0.56, Claude Desktop (неофициальная сборка для Linux 2.9939), Discord 1.0.160 |
@@ -241,7 +243,7 @@ git pull
 ./install.sh
 ```
 
-Свой `words.txt` установщик не перезаписывает, новые фразы видны командой `diff words/ru.txt ~/.config/claude-desktop-presence/words.txt`. Удалить: `./install.sh --uninstall` (службу, скрипт и хук; настройки остаются).
+Свой `words.txt` установщик не перезаписывает, а русские подсказки к значкам дописывает, если их ещё нет. Новые фразы видны командой `diff words/ru.txt ~/.config/claude-desktop-presence/words.txt`. Удалить: `./install.sh --uninstall` (службу, скрипт и хук; настройки остаются).
 
 ---
 

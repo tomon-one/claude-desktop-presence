@@ -5,7 +5,7 @@
 запасной путь — claude-code-sessions. Состояние — по хвосту журнала сессии
 ~/.claude/projects/*/<id>.jsonl; сжатие — по метке хука PreCompact (--hook).
 """
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 import datetime, functools, glob, json, os, random, re, select, socket, struct, sys, time, uuid
 

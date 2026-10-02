@@ -12,6 +12,8 @@
 
 > ### Read before installing
 >
+> **Version 0.1.1 "Sandevistan".** [What's new](https://github.com/tomon-one/claude-desktop-presence/releases).
+>
 > | | |
 > |---|---|
 > | used daily | Fedora 44, Hyprland 0.56, Claude Desktop (unofficial Linux build 2.9939), Discord 1.0.160 |

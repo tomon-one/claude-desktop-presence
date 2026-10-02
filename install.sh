@@ -85,6 +85,12 @@ title_no_chat = "Главное меню"
 title_cloud = "Облачная сессия"
 title_private = "Приватная сессия"
 title_untitled = "Без названия"
+EOF
+fi
+# русские подсказки к значкам — и при обновлении, если их ещё нет
+if [[ $lang == ru ]] && ! grep -q '^\[labels\]' "$conf/config.toml"; then
+    cat >> "$conf/config.toml" <<'EOF'
+
 # Подсказка при наведении на значок состояния (state_icons), простыми словами.
 [labels]
 thinking = "Думает"
