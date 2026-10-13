@@ -17,7 +17,8 @@
 > | | |
 > |---|---|
 > | used daily | Fedora 44, Hyprland 0.56, Claude Desktop (unofficial Linux build 2.9939), Discord 1.0.160 |
-> | written but untested | Discord socket paths for Flatpak, Snap and Vesktop; waiting for a permission prompt |
+> | tested live once | waiting for a permission prompt: a lock on the icon, 9 October 2026 |
+> | written but untested | Discord socket paths for Flatpak, Snap and Vesktop |
 > | not supported | macOS, Windows, Claude Code in a terminal without Desktop |
 >
 > **The code was written by an AI:** Claude, on the author's tasks and with the author's edits. [More](#written-with-ai).
