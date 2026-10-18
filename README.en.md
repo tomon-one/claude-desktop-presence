@@ -16,8 +16,8 @@
 >
 > | | |
 > |---|---|
-> | used daily | Fedora 44, Hyprland 0.56, Claude Desktop (unofficial Linux build 2.9939), Discord 1.0.160 |
-> | tested live once | waiting for a permission prompt: a lock on the icon, 9 October 2026 |
+> | used daily | Fedora 44, Hyprland 0.56, Claude Desktop (unofficial Linux build 2.42304), Discord 1.0.162 |
+> | tested live | waiting for a permission prompt (a lock on the icon, 9 October 2026), compacting context, background agents, error |
 > | written but untested | Discord socket paths for Flatpak, Snap and Vesktop |
 > | not supported | macOS, Windows, Claude Code in a terminal without Desktop |
 >
@@ -256,6 +256,7 @@ Chats "Personal: plans" and "Resume for work" become "Private session" on the ca
 
 - **The open chat** comes from the Desktop log `~/.config/Claude/logs/main.log` (`setFocusedSession` lines), titles from `~/.config/Claude/claude-code-sessions/`.
 - **The state** comes from the end of the session transcript `~/.claude/projects/*/<id>.jsonl` and Claude Code's session file `~/.claude/sessions/<pid>.json`, which shows a pending permission prompt.
+- **Background agents** are seen in their transcripts `~/.claude/projects/*/<id>/subagents/`: written to within the last minute means they are working. **Compacting** comes from the hook's marker in `~/.cache/claude-desktop-presence/`.
 - **To Discord** the card goes over the local `discord-ipc` socket, only when it changes. It polls every 4 seconds.
 
 ---
