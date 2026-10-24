@@ -461,7 +461,10 @@ COND = re.compile(r"^(.*?)\s*@\s*(\S+)(?:\s+([0-9]+))?\s*$")
 def word_key(section, line):
     """Ключ фразы для сверки списков: раздел, слово и условие без числа, без регистра.
     «X @запуск» и «X @переключение 15» — две фразы; «X @шанс 25» и «X @шанс 10» — одна."""
-    (word, cond, _), = parse_words([line])[None]
+    parsed = parse_words([line]).get(None)
+    if not parsed:      # строка из одного условия («@ночь»): программа её пропускает, ключ — сама строка
+        return f"{section}\t{line.lower()}"
+    (word, cond, _), = parsed
     return f"{section}\t{word.lower()}" + (f"\t{cond}" if cond else "")
 
 
@@ -512,7 +515,8 @@ def update_words(shipped_path, mine_path):
         seen = set()
     text, added, dropped, keys = merge_words(read(shipped_path), read(mine_path), seen)
     if added or dropped:
-        shutil.copy2(mine_path, mine_path + ".bak")
+        shutil.copyfile(mine_path, mine_path + ".bak.tmp")     # прежний .bak бывает только для чтения
+        os.replace(mine_path + ".bak.tmp", mine_path + ".bak")
         with open(mine_path + ".tmp", "w", encoding="utf-8") as fh:
             fh.write(text)
         shutil.copymode(mine_path, mine_path + ".tmp")
@@ -520,7 +524,10 @@ def update_words(shipped_path, mine_path):
     with open(seen_path + ".tmp", "w", encoding="utf-8") as fh:
         fh.write("\n".join(sorted(seen | keys)) + "\n")
     os.replace(seen_path + ".tmp", seen_path)
-    print(f"words.txt: новых фраз {added}, повторов убрано {dropped}" + (f" (копия: {mine_path}.bak)" if added or dropped else ""))
+    if os.environ.get("CDP_LANG") == "en":
+        print(f"words.txt: {added} new phrases, {dropped} repeats removed" + (f" (copy: {mine_path}.bak)" if added or dropped else ""))
+    else:
+        print(f"words.txt: новых фраз {added}, повторов убрано {dropped}" + (f" (копия: {mine_path}.bak)" if added or dropped else ""))
 
 
 def in_hours(hour, span):
@@ -858,6 +865,9 @@ if __name__ == "__main__":
     if "--hook" in sys.argv[1:]:
         hook()
     elif sys.argv[1:2] == ["--update-words"] and len(sys.argv) == 4:
-        update_words(sys.argv[2], sys.argv[3])
+        try:
+            update_words(sys.argv[2], sys.argv[3])
+        except (OSError, ValueError) as e:
+            sys.exit(f"words.txt: {failure(e)}")
     else:
         main()
