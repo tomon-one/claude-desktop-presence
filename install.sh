@@ -149,9 +149,11 @@ if sys.prefix != sys.base_prefix:
 print(p)
 EOF
 )
-# шим (pyenv и т. п.) выбирает версию по окружению и каталогу; служба стартует в ~ без PYENV_VERSION —
-# там он должен давать тоже 3.11+, иначе в юнит — тот python, что проверен здесь
-if ! (cd "$HOME" && env -u PYENV_VERSION "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))') 2>/dev/null; then
+# шим (pyenv, asdf, mise) выбирает версию по окружению и каталогу; служба стартует в ~ с окружением менеджера —
+# в нём он должен давать тоже 3.11+, иначе в юнит — тот python, что проверен здесь
+svc_path=$(manager_var PATH 2>/dev/null || true)
+if ! (cd "$HOME" && env -i HOME="$HOME" PATH="${svc_path:-/usr/local/bin:/usr/bin:/bin}" \
+        "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))') 2>/dev/null; then
     py=$("$py" -c 'import sys; print(sys.executable)')
 fi
 

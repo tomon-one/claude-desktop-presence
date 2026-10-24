@@ -255,6 +255,12 @@ class Status(Sandbox):
                      user("ход 2", T0 - 1), assistant(tool("Edit"), "tool_use", T0))
         self.assertEqual(p.status("s1", T0 + 1)[0], "coding")
         self.assertEqual(p._turns[path][0], T0 - 1)
+        p._cache.clear()
+        p._turns[path] = (T0 - 5000, T0 - 2)        # п8-02: то же для «задал вопрос»
+        self.journal(user("ход 1", T0 - 5000), assistant(TEXT, "end_turn", T0 - 3),
+                     user("ход 2", T0 - 1), assistant(tool("AskUserQuestion"), "tool_use", T0))
+        self.assertEqual(p.status("s1", T0 + 1)[0], "choice")
+        self.assertEqual(p._turns[path][0], T0 - 1)
 
     def test_turn_start_not_found_is_not_reread(self):
         # п6-05: запроса нет и в TAIL_MAX — не перечитывать журнал на каждом опросе

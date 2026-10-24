@@ -233,6 +233,20 @@ class Install(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertNotIn(d, self.unit())
 
+    def test_shim_needing_any_shell_variable_or_cwd_is_resolved(self):
+        # п8-01: asdf/mise — версия из своей переменной; pyenv — из .python-version каталога, откуда ставят
+        real = subprocess.run(["python3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True,
+                              env=self.env).stdout.strip()
+        d = self.shim(f'[ -n "$ASDF_PYTHON_VERSION" ] || exit 1\nexec "{real}" "$@"\n')
+        self.run_sh("--no-hook", PATH=d + ":" + self.env["PATH"], ASDF_PYTHON_VERSION="3.14")
+        self.assertNotIn(d, self.unit())
+        os.remove(d + "/python3")
+        d = self.shim(f'[ -f .python-version ] || exit 1\nexec "{real}" "$@"\n')
+        open(ROOT + "/.python-version", "w").close()
+        self.addCleanup(os.remove, ROOT + "/.python-version")
+        self.run_sh("--no-hook", PATH=d + ":" + self.env["PATH"])
+        self.assertNotIn(d, self.unit())
+
     def test_links_to_foreign_files_are_not_chmodded(self):
         # п6-01: hide.txt — ссылка в чужой файл (Nix, дотфайлы): установка идёт дальше, файл не трогается
         os.makedirs(self.conf)
