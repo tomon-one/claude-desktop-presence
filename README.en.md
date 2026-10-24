@@ -126,7 +126,16 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Thinking about the Golden Gate Bridge | always | Golden Gate Claude, Anthropic's 2024 experiment |
 | Clawd rides a cloud | always | Clawd, the official cloud scene |
 | Ultrathink | over 10 minutes | Claude Code, the keyword for the deepest thinking |
-| Tokens aren't infinite | chat open over 8 hours | |
+| Tokens aren't infinite | session over 8 hours | |
+| To the Depths With You | over 15 minutes | the anime Cyberpunk: Edgerunners 2, episode 7 title |
+| One brain for two | always | the anime Cyberpunk: Edgerunners 2, episode 4, Capri: the two of them share one brain |
+| Looking for a vessel | always | the anime Cyberpunk: Edgerunners 2, episode 4, Capri needed a vessel |
+| Walking in circles, like in Kyoko's building | over 20 minutes | the anime Cyberpunk: Edgerunners 2, episode 3, Roman and D keep ending up in the same place |
+| Roman is looking for the shot | always | the anime Cyberpunk: Edgerunners 2, Roman films everything |
+| D is looking for a way into Arasaka | always | the anime Cyberpunk: Edgerunners 2, episode 2, getting into Arasaka through its contractors |
+| Looking for Alt beyond the Blackwall | over 10 minutes | Cyberpunk 2077, Alt Cunningham beyond the Blackwall |
+| Rewinding a braindance | always | Cyberpunk 2077, editing a braindance with Judy |
+| Judy is editing a braindance | always | Cyberpunk 2077, Judy Alvarez |
 
 **Editing files**
 
@@ -136,6 +145,19 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Push B non stop | always | Counter-Strike 2, rushing B |
 | Combobulating | always | Claude Code, a spinner word |
 | Clawd types on his laptop | always | Clawd, the official laptop animation |
+| I'm starting to have fun | always | the anime Cyberpunk: Edgerunners 2, episode 3, Capri in D's body |
+| Installs its own implants | always | the anime Cyberpunk: Edgerunners 2, episode 2, Avida about Talia |
+| Shooting on 35 mm | always | the anime Cyberpunk: Edgerunners 2, episode 1, film stock, Roman's reward from Sal |
+| Tactical diversion | always | the anime Cyberpunk: Edgerunners 2, episode 2, D's plan: Roman shouts for Helio |
+| REC ● | always | the anime Cyberpunk: Edgerunners 2, Roman's camera |
+| D is hacking Arasaka | always | the anime Cyberpunk: Edgerunners 2, episode 2, D suggests hacking Arasaka |
+| Meshuga is locating the cell | always | the anime Cyberpunk: Edgerunners 2, episode 1, the warehouse raid |
+| Talia is installing new chrome | always | the anime Cyberpunk: Edgerunners 2, episode 2 |
+| Roman films, D covers him | always | the anime Cyberpunk: Edgerunners 2, episode 2 |
+| Getting chrome fixed at Viktor's | always | Cyberpunk 2077, ripperdoc Viktor Vektor |
+| Kerry's rehearsing with Samurai | at night | Cyberpunk 2077, Kerry Eurodyne |
+| Panam is fixing the Basilisk | always | Cyberpunk 2077, Panam Palmer and the Aldecaldos |
+| River is reviewing the case | always | Cyberpunk 2077, detective River Ward |
 
 **Asked a multiple-choice question**
 
@@ -144,6 +166,11 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Red pill or blue pill? | always | the film The Matrix |
 | Needs a clarification | always | |
 | Clawd looks left, then right | always | Clawd, the look-around animation |
+| Strictly Reserved For You | always | the anime Cyberpunk: Edgerunners 2, episode 9 title |
+| Then prove it | always | the anime Cyberpunk: Edgerunners 2, episode 1, Talia to Roman |
+| Want anesthesia, or don't care? | always | the anime Cyberpunk: Edgerunners 2, episode 1, Maelstrom to Roman |
+| Sitting on the roof with Johnny | over 10 minutes | Cyberpunk 2077, choosing the ending |
+| Songbird or Reed? | always | Cyberpunk 2077: Phantom Liberty |
 
 **Waiting for permission to run a tool**
 
@@ -155,6 +182,17 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Awaiting orders | always | Detroit: Become Human, androids awaiting instructions |
 | Do you want to proceed? | always | Claude Code, the permission prompt |
 | Clawd waves | always | Clawd, the official waving animation |
+| Looks like a trap. I'll bite | always | the anime Cyberpunk: Edgerunners 2, episode 2, D at Kyoko's building |
+| Checking Trauma Team coverage | always | the anime Cyberpunk: Edgerunners 2, episode 1, Max-Tac before the assault |
+| Boosting ICE, just in case | always | the anime Cyberpunk: Edgerunners 2, episode 2, D |
+| Weak's holding a Lexington again | always | the anime Cyberpunk: Edgerunners 2, episode 1, Weak picks up a Lexington again |
+| Talia: "Ready to begin" | always | the anime Cyberpunk: Edgerunners 2, episode 2, Maelstrom |
+| Maelstrom takes the job | always | the anime Cyberpunk: Edgerunners 2, Talia's gang |
+| D asks Capri for permission | 15 % chance | the anime Cyberpunk: Edgerunners 2, D and Capri |
+| T-Bug is cracking the ICE | always | Cyberpunk 2077, the Konpeki Plaza heist |
+| Songbird on the line | always | Cyberpunk 2077: Phantom Liberty |
+| Meredith Stout approves the job | always | Cyberpunk 2077, Meredith Stout of Militech |
+| Smasher is at the door | 15 % chance | Cyberpunk 2077, Adam Smasher |
 
 **Just replied** (30 seconds after a reply)
 
@@ -164,6 +202,14 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Breathtaking | 25 % chance | Keanu Reeves at E3 2019: "You're breathtaking!" |
 | You're absolutely right! | always | the Claude meme |
 | Clawd dances | always | Clawd, the official dance |
+| That video came out great | always | the anime Cyberpunk: Edgerunners 2, episode 2, Talia about Roman's footage |
+| Not saving you twice | 25 % chance | the anime Cyberpunk: Edgerunners 2, episode 1, D to Roman |
+| Zero doubts | always | the anime Cyberpunk: Edgerunners 2, episode 9, D's answer to Talia |
+| I'm still alive, aren't I? | 20 % chance | the anime Cyberpunk: Edgerunners 2, Talia |
+| Kyoko: "I'm a genius!" | 25 % chance | the anime Cyberpunk: Edgerunners 2, episode 3, Kyoko's flashback |
+| Sal: "Two hundred" | 25 % chance | the anime Cyberpunk: Edgerunners 2, episode 1, Sal pays Roman for the footage |
+| Preem | always | Cyberpunk 2077, slang for great |
+| Delta | 20 % chance | Cyberpunk 2077, slang for getting out fast |
 
 **Waiting**
 
@@ -183,6 +229,26 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Stuck in Mt. Moon | always | the Claude Plays Pokémon stream |
 | Clawd hits the gym | always | Clawd, the dumbbell clip |
 | Cache went cold | over 75 minutes | Claude Code suggests /clear after 75 idle minutes |
+| Last Chance for a Slow Dance | over 45 minutes | the anime Cyberpunk: Edgerunners 2, episode 1 title |
+| Give Me Another Day | over 20 minutes | the anime Cyberpunk: Edgerunners 2, episode 2 title |
+| Grab your camera and get over here | always | the anime Cyberpunk: Edgerunners 2, episode 2, Talia calls Roman |
+| Is D-kun awake? | first wait of the morning | the anime Cyberpunk: Edgerunners 2, episode 2, Roman's father |
+| You can see me, right? I know you can | over 10 minutes | the anime Cyberpunk: Edgerunners 2, Capri |
+| Then we flatline together. | at night | the anime Cyberpunk: Edgerunners 2 |
+| Battery's dead | over 90 minutes | the anime Cyberpunk: Edgerunners 2, episode 2, Roman's camera |
+| Fifty days? I slept that long? | over two hours | the anime Cyberpunk: Edgerunners 2, episode 1, King wakes up in the clinic |
+| we'll see each other again. | session over 8 hours | the anime Cyberpunk: Edgerunners 2 |
+| CALL: AVIDA | over 15 minutes | the anime Cyberpunk: Edgerunners 2, episode 1, the call to King |
+| Sal is waiting for the footage | always | the anime Cyberpunk: Edgerunners 2, episode 1, Sal's order |
+| Roman waits for D to wake up | always | the anime Cyberpunk: Edgerunners 2, episode 2, D wakes up at Roman's place |
+| Helio never picked up | over 30 minutes | the anime Cyberpunk: Edgerunners 2, episode 1 |
+| Alam is calling his friends | always | the anime Cyberpunk: Edgerunners 2, episode 5 |
+| Tuned in to HKGN 102.0 FM | always | Cyberpunk 2077, update 2.5, the radio station with Edgerunners tracks |
+| Waiting for Dex to call | over 15 minutes | Cyberpunk 2077, fixer Dexter DeShawn |
+| Misty is reading tarot | at night | Cyberpunk 2077, Misty and the tarot arcana |
+| Jackie is waiting at the Afterlife | at night | Cyberpunk 2077, Jackie Welles and the mercs' bar |
+| Rogue is in no hurry | over 15 minutes | Cyberpunk 2077, fixer Rogue |
+| Wakako is waiting for your report | always | Cyberpunk 2077, fixer Wakako |
 
 **Background agents at work** (the turn is over, but agents or a workflow are still running)
 
@@ -195,6 +261,15 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Split up, hunting the ghost | always | the game Phasmophobia |
 | Claude, Claude and more Claude | always | subagents are Claude too |
 | Clawd waves a flag | always | Clawd, the flag clip |
+| 0+2=1 | always | the anime Cyberpunk: Edgerunners 2, episode 3 title |
+| He, she, they, we… | always | the anime Cyberpunk: Edgerunners 2, episode 4, Capri |
+| One deck won't cut it | always | the anime Cyberpunk: Edgerunners 2, D to Roman |
+| Set up the Team D hideout | always | the anime Cyberpunk: Edgerunners 2, Talia |
+| Kang Tao is on it | always | the anime Cyberpunk: Edgerunners 2, Avida's Kang Tao soldiers |
+| Omi is putting the team together | always | the anime Cyberpunk: Edgerunners 2, Omi |
+| The Tiger Claws are hunting Talia | always | the anime Cyberpunk: Edgerunners 2, episode 2 |
+| Delamain and his cores | always | Cyberpunk 2077, Delamain split into cores |
+| The Voodoo Boys are breaking the net | always | Cyberpunk 2077, the Voodoo Boys and Placide |
 
 **No chat selected**
 
@@ -206,6 +281,13 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Roaming Night City | at night | Cyberpunk 2077 |
 | Welcome to Claude Code! | always | Claude Code, the greeting |
 | Clawd kicks a ball | always | Clawd on the Claude Code start screen in summer 2026 |
+| Then Everyone Went Home | always | the anime Cyberpunk: Edgerunners 2, episode 10 title |
+| Cinema is dead | always | the anime Cyberpunk: Edgerunners 2, episode 1, Roman |
+| Watching Burst Panic | at night | the anime Cyberpunk: Edgerunners 2, episode 1, the film "Burst Panic: The Big Crash" |
+| Roman picks tonight's movie | always | the anime Cyberpunk: Edgerunners 2, episode 1 |
+| Riding in a Delamain | always | Cyberpunk 2077, the AI taxi |
+| Walking around Dogtown | at night | Cyberpunk 2077: Phantom Liberty |
+| Kurt Hansen receives guests in Dogtown | at night | Cyberpunk 2077: Phantom Liberty |
 
 **Event** (for one minute, on top of any state)
 
@@ -214,6 +296,9 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Ready or not? | the first minute after Claude Desktop starts | Cascada, "Ready or Not" (Evacuate the Dancefloor), and the game Ready or Not |
 | Ready or not? | 15 % chance on switching chats | same |
 | Clawd plays the guitar | the first minute after Claude Desktop starts | Clawd on the Claude FM stream and in ultracode |
+| Found you | 10 % chance on switching chats | the anime Cyberpunk: Edgerunners 2, Capri |
+| Trauma Team is on its way | 20 % chance on switching chats | the anime Cyberpunk: Edgerunners 2, episode 1, platinum coverage |
+| Megabuilding H10 | the first minute after Claude Desktop starts | Cyberpunk 2077, V's home |
 
 **Error**
 
@@ -224,6 +309,17 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Never Recover | always | The Cardigans, "Never Recover" (First Band on the Moon) |
 | 529 Overloaded | always | Claude API error under load |
 | Detective Clawd hunts the bug | always | Clawd, the official detective scene |
+| Everything Hate | always | the anime Cyberpunk: Edgerunners 2, episode 6 title |
+| ACCESS DENIED. SUBJECT SEIZED | always | the anime Cyberpunk: Edgerunners 2, episode 1, the clinic screen |
+| Neutralizing cyberpsycho | always | the anime Cyberpunk: Edgerunners 2, episode 1, Max-Tac |
+| Arasaka's losing ground | always | the anime Cyberpunk: Edgerunners 2, episode 1, Sal |
+| The project got shut down | always | the anime Cyberpunk: Edgerunners 2, an Arasaka employee |
+| Meshuga: "You snapped" | always | the anime Cyberpunk: Edgerunners 2, episode 1, Meshuga to Miguel |
+| Max-Tac is on the way | always | the anime Cyberpunk: Edgerunners 2, episode 1 |
+| Relic malfunction | always | Cyberpunk 2077, the Relic glitching |
+| Flatlined | 25 % chance | Cyberpunk 2077, slang for dead |
+| Smasher found us | 20 % chance | Cyberpunk 2077, Adam Smasher |
+| Evelyn isn't answering | always | Cyberpunk 2077, Evelyn Parker |
 
 **Compacting the context**
 
@@ -235,6 +331,14 @@ Below is the English set, `words/en.txt`. Phrases that reference an English titl
 | Erase/Rewind | always | The Cardigans, "Erase/Rewind" (Gran Turismo) |
 | Compacting conversation | always | Claude Code, the text shown while compacting |
 | Clawd walks sideways | always | Clawd, the official loading animation |
+| Someone That I Used To Know | always | the anime Cyberpunk: Edgerunners 2, episode 4 title |
+| Fades (Pass the Distance) | always | the anime Cyberpunk: Edgerunners 2, episode 5 title |
+| I didn't dream at all | always | the anime Cyberpunk: Edgerunners 2, episode 4, D |
+| Rewrote the ID | always | the anime Cyberpunk: Edgerunners 2, episode 2, Weak switches off Talia's GPS |
+| I'll never grow old. | always | the anime Cyberpunk: Edgerunners 2, Talia |
+| Miguel remembers nothing | always | the anime Cyberpunk: Edgerunners 2, episode 1, Miguel |
+| Kenzo, Jose, Rene, Omi, Marvette | at night | the anime Cyberpunk: Edgerunners 2, episode 3, D's friends from the clan |
+| Loading the engram | always | Cyberpunk 2077, Johnny's engram |
 
 ---
 

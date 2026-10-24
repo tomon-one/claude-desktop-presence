@@ -33,18 +33,48 @@ Thinking about the Golden Gate Bridge
 Clawd rides a cloud
 Ultrathink @longer 10
 Tokens aren't infinite @session 8
+To the Depths With You @longer 15
+One brain for two
+Looking for a vessel
+Walking in circles, like in Kyoko's building @longer 20
+Roman is looking for the shot
+D is looking for a way into Arasaka
+Looking for Alt beyond the Blackwall @longer 10
+Rewinding a braindance
+Judy is editing a braindance
 
 [coding]
 Investigating like Kovacs
 Push B non stop
 Combobulating
 Clawd types on his laptop
+I'm starting to have fun
+Installs its own implants
+Shooting on 35 mm
+Tactical diversion
+REC ●
+D is hacking Arasaka
+Meshuga is locating the cell
+Talia is installing new chrome
+Roman films, D covers him
+Getting chrome fixed at Viktor's
+Kerry's rehearsing with Samurai @night
+Panam is fixing the Basilisk
+River is reviewing the case
 
 [done]
 Done
 Breathtaking @chance 25
 You're absolutely right!
 Clawd dances
+That video came out great
+Not saving you twice @chance 25
+Zero doubts
+I'm still alive, aren't I? @chance 20
+Kyoko: "I'm a genius!" @chance 25
+Sal: "Two hundred" @chance 25
+Preem
+Delta @chance 20
 
 [waiting]
 Waiting for a reply
@@ -61,11 +91,36 @@ Rise & shine @morning
 Stuck in Mt. Moon
 Clawd hits the gym
 Cache went cold @longer 75
+Last Chance for a Slow Dance @longer 45
+Give Me Another Day @longer 20
+Grab your camera and get over here
+Is D-kun awake? @morning
+You can see me, right? I know you can @longer 10
+Then we flatline together. @night
+Battery's dead @longer 90
+Fifty days? I slept that long? @longer 120
+we'll see each other again. @session 8
+CALL: AVIDA @longer 15
+Sal is waiting for the footage
+Roman waits for D to wake up
+Helio never picked up @longer 30
+Alam is calling his friends
+Tuned in to HKGN 102.0 FM
+Waiting for Dex to call @longer 15
+Misty is reading tarot @night
+Jackie is waiting at the Afterlife @night
+Rogue is in no hurry @longer 15
+Wakako is waiting for your report
 
 [choice]
 Red pill or blue pill?
 Needs a clarification
 Clawd looks left, then right
+Strictly Reserved For You
+Then prove it
+Want anesthesia, or don't care?
+Sitting on the roof with Johnny @longer 10
+Songbird or Reed?
 
 [permission]
 # Claude waits for permission to run a tool
@@ -75,6 +130,17 @@ Asking for a drop
 Awaiting orders
 Do you want to proceed?
 Clawd waves
+Looks like a trap. I'll bite
+Checking Trauma Team coverage
+Boosting ICE, just in case
+Weak's holding a Lexington again
+Talia: "Ready to begin"
+Maelstrom takes the job
+D asks Capri for permission @chance 15
+T-Bug is cracking the ICE
+Songbird on the line
+Meredith Stout approves the job
+Smasher is at the door @chance 15
 
 [background]
 # the turn is over, but background agents (Agent, Workflow) are still working
@@ -85,6 +151,15 @@ Spread the team across sites
 Split up, hunting the ghost
 Claude, Claude and more Claude
 Clawd waves a flag
+0+2=1
+He, she, they, we…
+One deck won't cut it
+Set up the Team D hideout
+Kang Tao is on it
+Omi is putting the team together
+The Tiger Claws are hunting Talia
+Delamain and his cores
+The Voodoo Boys are breaking the net
 
 [nochat]
 In the lobby
@@ -93,11 +168,21 @@ Waiting for player 2
 Roaming Night City @night
 Welcome to Claude Code!
 Clawd kicks a ball
+Then Everyone Went Home
+Cinema is dead
+Watching Burst Panic @night
+Roman picks tonight's movie
+Riding in a Delamain
+Walking around Dogtown @night
+Kurt Hansen receives guests in Dogtown @night
 
 [event]
 Ready or not? @launch
 Ready or not? @switch 15
 Clawd plays the guitar @launch
+Found you @switch 10
+Trauma Team is on its way @switch 20
+Megabuilding H10 @launch
 
 [error]
 Black Letter Day
@@ -105,6 +190,17 @@ Wasted
 Never Recover
 529 Overloaded
 Detective Clawd hunts the bug
+Everything Hate
+ACCESS DENIED. SUBJECT SEIZED
+Neutralizing cyberpsycho
+Arasaka's losing ground
+The project got shut down
+Meshuga: "You snapped"
+Max-Tac is on the way
+Relic malfunction
+Flatlined @chance 25
+Smasher found us @chance 20
+Evelyn isn't answering
 
 [compacting]
 Compressed, not defeated
@@ -113,3 +209,11 @@ Eco round, saving for an AWP
 Erase/Rewind
 Compacting conversation
 Clawd walks sideways
+Someone That I Used To Know
+Fades (Pass the Distance)
+I didn't dream at all
+Rewrote the ID
+I'll never grow old.
+Miguel remembers nothing
+Kenzo, Jose, Rene, Omi, Marvette @night
+Loading the engram
