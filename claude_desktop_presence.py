@@ -347,6 +347,8 @@ def state_pointer():
 def announce_state_dir():
     try:
         os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+        if state_ok() and os.stat(STATE_DIR).st_mode & 0o077:     # каталог от старой версии (755) — закрыть
+            os.chmod(STATE_DIR, 0o700)
         write_over(state_pointer(), STATE_DIR + "\n")
     except OSError:
         pass
@@ -450,6 +452,11 @@ def journal_status(cli_id, now, busy=False):
         entries = cached(path, read_tail)
     except FileNotFoundError:
         return "waiting", None
+    held = _turns.get(path)     # начало хода помнится, пока чат смотрят без перерыва (в любом состоянии)
+    if held and now - held[1] > 3 * POLL:
+        del _turns[path]        # перерыв: ход мог смениться без нас
+    elif held:
+        _turns[path] = (held[0], now)
 
     mark = mtime(compact_marker(cli_id)) if state_ok() else None
     if mark:
@@ -505,19 +512,18 @@ def is_turn_start(e):
 
 
 def turn_start(path, entries, now):
-    """Начало текущего хода. Запроса нет в хвосте — помнить с прошлых опросов, но только если чат смотрели
-    без перерыва (иначе ход мог смениться без нас); не видели — поискать дальше в журнале, до TAIL_MAX."""
+    """Начало текущего хода. Запроса нет в хвосте — взять запомненное (journal_status забывает его после перерыва);
+    не помним — поискать дальше в журнале, до TAIL_MAX, один раз: не нашли — помнить и это (None), не перечитывать."""
     turn = next((e for e in reversed(entries) if is_turn_start(e)), None)
     if turn:
         start = ts(turn)
+    elif path in _turns:
+        start = _turns[path][0]
     else:
-        start, seen = _turns.get(path, (None, 0))
-        if start is None or now - seen > 3 * POLL:
-            older = read_tail(path, lambda es: any(map(is_turn_start, es)))
-            turn = next((e for e in reversed(older) if is_turn_start(e)), None)
-            start = ts(turn) if turn else None
-    if start is not None:
-        _turns[path] = (start, now)
+        older = read_tail(path, lambda es: any(map(is_turn_start, es)))
+        turn = next((e for e in reversed(older) if is_turn_start(e)), None)
+        start = ts(turn) if turn else None
+    _turns[path] = (start, now)
     return start
 
 
@@ -642,12 +648,13 @@ def released_keys(released, mine):
             versions.setdefault(v, set()).add(key)
     have = merge_words(mine, mine, set())[3]     # ключи своего words.txt
     order = sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".") if x.isdigit()))
-    chosen, before = order[0] if order else None, set()
+    chosen, before = None, set()
     for v in order:
         if (versions[v] - before) & have:
             chosen = v
         before = versions[v]
-    return versions.get(chosen, set())
+    # ни одной фразы релизов (только свои или пусто) — считать последним: удалённое самим не возвращать
+    return versions.get(chosen or (order[-1] if order else None), set())
 
 
 def write_over(path, text, mode_from=None):
@@ -1064,7 +1071,7 @@ if __name__ == "__main__":
     elif not args:
         main()
     else:
-        print(f"claude-desktop-presence {__version__}: Discord Rich Presence для Claude Desktop\n" + t(
+        print(f"claude-desktop-presence {__version__}: Discord Rich Presence " + t("для Claude Desktop\n", "for Claude Desktop\n") + t(
               "  без ключей          служба (обычно её запускает systemd --user)\n"
               "  --hook              хук PreCompact Claude Code (читает stdin)\n"
               "  --update-words A B  дописать новые фразы из A в свой words.txt B\n"

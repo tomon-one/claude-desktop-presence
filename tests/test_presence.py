@@ -201,6 +201,13 @@ class Status(Sandbox):
         with mock.patch("time.monotonic", return_value=100.0 + p.STALE + 1):
             self.assertEqual(p.status("s1", T0)[0], "waiting")
 
+    def test_service_closes_an_old_marks_dir(self):
+        # п1-17: каталог меток 755 от старой версии закрывает и служба, не только хук
+        os.makedirs(p.STATE_DIR, mode=0o755)
+        os.chmod(p.STATE_DIR, 0o755)
+        p.announce_state_dir()
+        self.assertEqual(os.stat(p.STATE_DIR).st_mode & 0o777, 0o700)
+
     def test_hook_uses_the_dir_named_by_the_service(self):
         # п5-02: служба называет свой каталог меток, хук пишет туда, даже если его XDG_CACHE_HOME другой
         service_dir = self.dir.name + "/service-cache"
@@ -219,6 +226,40 @@ class Status(Sandbox):
             p._cache.clear()
             self.journal(user("ход 1", T0 - 5000), assistant(TEXT, "end_turn", T0 - 4000), user("ход 2", T0 - 1000), *big)
             self.assertEqual(p.status("s1", T0 + 3600, busy=True)[1], T0 - 1000)
+
+    def big_turn(self, start, *between):
+        big = [e for i in range(20) for e in (assistant(tool("Read"), "tool_use", T0 - 100 + i),
+               user([{"type": "tool_result", "content": "x" * 2000}], T0 - 100 + i))]
+        return self.journal(user("x", start), *between, *big)
+
+    def test_coding_phase_keeps_turn_start(self):
+        # п6-04: фаза «правит файлы» дольше 12 с не стирает начало хода
+        with mock.patch.multiple(p, TAIL=4096, TAIL_MAX=4096):
+            self.big_turn(T0 - 1200)
+            p._turns[self.dir.name + "/projects/p/s1.jsonl"] = (T0 - 1200, T0)
+            p._cache.clear()
+            path = self.journal(user("x", T0 - 1200), *[assistant(tool("Edit"), "tool_use", T0 + i) for i in range(1)])
+            self.assertEqual(p.status("s1", T0 + 4)[0], "coding")
+            self.assertEqual(p.status("s1", T0 + 8)[0], "coding")
+            self.assertEqual(p.status("s1", T0 + 12)[0], "coding")
+            self.assertEqual(p.status("s1", T0 + 16)[0], "coding")
+            p._cache.clear()
+            self.big_turn(T0 - 7200)       # запроса хода в хвосте и в TAIL_MAX нет
+            self.assertEqual(p.status("s1", T0 + 20, busy=True), ("thinking", T0 - 1200))
+
+    def test_turn_start_not_found_is_not_reread(self):
+        # п6-05: запроса нет и в TAIL_MAX — не перечитывать журнал на каждом опросе
+        with mock.patch.multiple(p, TAIL=4096, TAIL_MAX=4096):
+            big = [e for i in range(20) for e in (assistant(tool("Read"), "tool_use", T0 - 100 + i),
+                   user([{"type": "tool_result", "content": "x" * 2000}], T0 - 100 + i))]
+            self.journal(*big)
+            calls = []
+            real = p.read_tail
+            with mock.patch.object(p, "read_tail", lambda path, *a: calls.append(a) or real(path, *a)):
+                for i in range(5):
+                    p._cache.clear()
+                    p.status("s1", T0 + 4 * i, busy=True)
+            self.assertEqual(sum(1 for a in calls if a), 1)       # поиск начала хода — один раз
 
     def test_error_forgets_turn_start(self):
         p._turns[self.dir.name + "/projects/p/s1.jsonl"] = (T0 - 9999, T0)
@@ -644,6 +685,17 @@ class Proc(unittest.TestCase):
         self.btime(400)
         self.assertEqual(p.desktop_start(), 420)
 
+    def test_registry_on_fake_proc(self):
+        # п4-13: реестр читает настоящие proc_name/proc_start (comm с переводом строки)
+        self.process(21, "claude", 77)
+        reg = self.proc + "/reg"
+        os.makedirs(reg)
+        with open(reg + "/21.json", "w") as fh:
+            json.dump({"pid": 21, "procStart": "77", "hostSessionId": "local_a", "status": "busy"}, fh)
+        p._cache.clear()
+        with mock.patch.object(p, "REGISTRY", reg + "/*.json"):
+            self.assertEqual(set(p.registry()), {"local_a"})
+
     def test_other_users_desktop_is_ignored(self):
         # п2-08
         self.process(11, "claude-desktop", 20 * self.tck)
@@ -743,6 +795,8 @@ class Command(unittest.TestCase):
             with open(dst) as fh:
                 self.assertIn("Новая", fh.read())
             self.assertFalse(os.path.exists(src + ".seen"))
+        rc, out, _ = self.run_cli("--help", CDP_LANG="en")
+        self.assertNotRegex(out, "[а-яё]")                       # п2-13
         rc, out, _ = self.run_cli("--update-words", "only-one")
         self.assertEqual(rc, 2)
         self.assertNotIn("Traceback", out)
@@ -998,6 +1052,12 @@ class UpdateWords(unittest.TestCase):
             self.skipTest("нет тегов git")
         text = p.merge_words(shipped, old.stdout, p.released_keys(real, old.stdout))[0]
         self.assertIn("Clauding", text)          # фраза 0.1.2 приходит к пользователю 0.1.0
+
+    def test_own_words_only_count_as_the_latest_release(self):
+        # п6-06: ни одной фразы релизов — удалённое самим не возвращать
+        released = "0.1.0\tthinking\tдумает\n0.1.1\tthinking\tдумает\n0.1.1\tthinking\tищет бензин\n"
+        self.assertEqual(p.released_keys(released, "[думает]\nСвоя фраза\n"), {"thinking\tдумает", "thinking\tищет бензин"})
+        self.assertEqual(p.released_keys(released, ""), {"thinking\tдумает", "thinking\tищет бензин"})
 
     def test_released_keys_cover_every_old_release(self):
         with open(ROOT + "/words/released.txt") as fh:

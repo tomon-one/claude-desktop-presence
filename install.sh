@@ -136,12 +136,24 @@ fi
 # служба запускается тем же python3, который проверен здесь: у systemd --user свой PATH, там бывает старый
 py=$(command -v python3) || die "нет python3" "python3 not found"
 "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' || die "нужен Python 3.11+ ($py)" "Python 3.11+ is required ($py)"
-# из venv — его базовый python: venv удалят или пересоздадут, а служба останется
-py=$("$py" -c 'import sys; print(getattr(sys, "_base_executable", "") or sys.executable)')
+# из venv — его базовый python (venv удалят или пересоздадут), и без версии в имени, если он есть рядом
+# (python3.14 пропадёт при переходе Fedora на новый Python); не venv — путь как есть (шимы pyenv следуют за версией)
+py=$("$py" - "$py" <<'EOF'
+import os, sys
+p = sys.argv[1]
+if sys.prefix != sys.base_prefix:
+    p = getattr(sys, "_base_executable", "") or sys.executable
+    plain = os.path.join(os.path.dirname(p), "python3")
+    if os.path.realpath(plain) == os.path.realpath(p):
+        p = plain
+print(p)
+EOF
+)
 
 mkdir -p "$(dirname "$bin")" "$conf" "$(dirname "$unit")"
-chmod go-rwx "$conf"     # от прошлых версий бывает 755
-[[ -f $conf/hide.txt ]] && chmod go-rwx "$conf/hide.txt"
+# от прошлых версий бывает 755; ссылки (дотфайлы, Nix) не трогать — цель бывает чужой или только для чтения
+if [[ ! -L $conf ]]; then chmod go-rwx "$conf" 2>/dev/null || true; fi
+if [[ -f $conf/hide.txt && ! -L $conf/hide.txt ]]; then chmod go-rwx "$conf/hide.txt" 2>/dev/null || true; fi
 if (( link )); then ln -sf "$PWD/claude_desktop_presence.py" "$bin"; else install -m 755 claude_desktop_presence.py "$bin"; fi
 if [[ ! -e $conf/config.toml ]]; then
     if [[ $lang == en ]]; then cp config.example.en.toml "$conf/config.toml"; else cp config.example.toml "$conf/config.toml"; fi
@@ -191,7 +203,8 @@ fi
 import sys
 py, lang, src, dst = sys.argv[1:]
 if any(c in py for c in '"\\') or not py.isprintable():
-    sys.exit(f"{py}: systemd не запустит программу по пути с кавычкой или обратной чертой")
+    sys.exit(f"{py}: systemd cannot start a program from a path with a quote or a backslash" if lang == "en"
+             else f"{py}: systemd не запустит программу по пути с кавычкой или обратной чертой")
 quoted = '"' + py.replace("%", "%%") + '"'     # $ в пути программы systemd не раскрывает
 out = []
 for line in open(src, encoding="utf-8").read().splitlines():

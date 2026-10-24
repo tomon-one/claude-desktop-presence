@@ -15,7 +15,9 @@ class Install(unittest.TestCase):
                      '[ "$2" = daemon-reload ] && exit ${FAKE_RELOAD_RC:-${FAKE_SYSTEMCTL_RC:-0}}\n'
                      'exit ${FAKE_SYSTEMCTL_RC:-0}\n')
         os.chmod(d + "/fakebin/systemctl", 0o755)
-        self.env = {"HOME": d, "PATH": d + "/fakebin:" + os.environ["PATH"], "LANG": "C.UTF-8"}
+        os.makedirs(d + "/run")
+        # свой XDG_RUNTIME_DIR: --uninstall убирает указатель каталога меток — не настоящий (п6-03)
+        self.env = {"HOME": d, "PATH": d + "/fakebin:" + os.environ["PATH"], "LANG": "C.UTF-8", "XDG_RUNTIME_DIR": d + "/run"}
         self.settings = d + "/.claude/settings.json"
         self.bin = d + "/.local/bin/claude-desktop-presence"
         self.cmd = self.bin + " --hook"
@@ -175,6 +177,26 @@ class Install(unittest.TestCase):
         rc, out = self.run_sh("--no-hook", PATH=venv + "/bin:" + self.env["PATH"])
         self.assertEqual(rc, 0, out)
         self.assertNotIn(venv, self.unit())
+        exe = next(l for l in self.unit().splitlines() if l.startswith("ExecStart=")).split('"')[1]
+        if os.path.exists(os.path.join(os.path.dirname(exe), "python3")):
+            self.assertEqual(os.path.basename(exe), "python3")     # п6-02: без версии в имени
+
+    def test_uninstall_in_tests_keeps_the_real_pointer(self):
+        # п6-03: указатель убирается в XDG_RUNTIME_DIR песочницы
+        with open(self.home + "/run/claude-desktop-presence.dir", "w") as fh:
+            fh.write("/x\n")
+        self.run_sh("--uninstall")
+        self.assertFalse(os.path.exists(self.home + "/run/claude-desktop-presence.dir"))
+
+    def test_links_to_foreign_files_are_not_chmodded(self):
+        # п6-01: hide.txt — ссылка в чужой файл (Nix, дотфайлы): установка идёт дальше, файл не трогается
+        os.makedirs(self.conf)
+        target = "/etc/hostname" if os.path.exists("/etc/hostname") else "/etc/passwd"
+        mode = os.stat(target).st_mode
+        os.symlink(target, self.conf + "/hide.txt")
+        rc, out = self.run_sh("--no-hook")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(os.stat(target).st_mode, mode)
 
     def test_odd_characters_in_python_path(self):
         # п5-05: & | % и пробел в пути — юнит цел, % удвоен
