@@ -32,7 +32,7 @@ FAILS_CLEAR = 3     # столько опросов подряд со сбоем
 CACHE_IDLE = 50     # опросов без обращения — запись кэша выбрасывается
 
 TAIL = 512 * 1024           # байт с конца журнала; одна строка бывает больше (картинки) —
-TAIL_MAX = 32 * 1024 * 1024  # тогда окно растёт до этого
+TAIL_MAX = 8 * 1024 * 1024   # тогда окно растёт до этого (дальше — дорого: разбор на каждом опросе)
 NIGHT = (23, 5)
 MORNING = (5, 12)
 CODE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -287,11 +287,18 @@ def tool_result(e):
         and content[0].get("type") == "tool_result"
 
 
+def first_text(e):
+    """Начало текста записи: строка или первый текстовый блок."""
+    content = (e.get("message") or {}).get("content")
+    if isinstance(content, list):
+        content = next((b.get("text") for b in content if isinstance(b, dict) and b.get("type") == "text"), None)
+    return content.lstrip() if isinstance(content, str) else ""
+
+
 def local_command(e):
-    """Строки /compact и других локальных команд, итог сжатия — не начало хода."""
-    t = text_of(e)[:300]
-    return bool(e.get("isCompactSummary")
-                or "<local-command-stdout>" in t or "<command-name>" in t or "<local-command-caveat>" in t)
+    """Строки /compact, /model и других локальных команд — не начало хода. Тег — в начале, а не цитата в запросе."""
+    return first_text(e).startswith(("<command-name>", "<command-message>", "<local-command-stdout>",
+                                     "<local-command-caveat>"))
 
 
 def interrupted(e):
@@ -344,16 +351,21 @@ def mtime(path):
         return None
 
 
-def background(cli_id, now):
-    """Ход окончен, но фоновые агенты (Agent, Workflow) этой сессии ещё пишут свои журналы."""
+def background(cli_id, now, ended=None):
+    """Ход окончен, но фоновые агенты (Agent, Workflow) этой сессии ещё пишут свои журналы.
+    ended — конец хода: синхронный субагент пишет только до него, фоновый — и после."""
     newest = max((mtime(f) or 0 for d in glob.glob(TRANSCRIPTS.format(cli_id)[:-6] + "/subagents")
-                  for f in glob.glob(d + "/**/*.jsonl", recursive=True)), default=0)
-    return now - newest < BACKGROUND
+                  for f in glob.glob(glob.escape(d) + "/**/*.jsonl", recursive=True)), default=0)
+    return now - newest < BACKGROUND and (ended is None or newest > ended + 1)
+
+
+_turns = {}     # журнал → начало текущего хода: в длинном ходе запрос уходит из окна read_tail
 
 
 def status(cli_id, now, busy=False):
-    """(состояние, с какого момента): thinking / coding / choice / waiting / error / compacting.
-    busy — реестр говорит, что ход идёт: тогда долгое молчание журнала (длинная команда) не «ждёт»."""
+    """(состояние, с какого момента): thinking / coding / choice / done / waiting / error / compacting.
+    done — ход окончен ответом (с его времени; «Готово» из него делает build), waiting — ответа не было
+    (Esc, /model) или журнал молчит. busy — реестр говорит, что ход идёт: долгое молчание журнала не «ждёт»."""
     files = [(m, f) for f in glob.glob(TRANSCRIPTS.format(cli_id)) if (m := mtime(f))] if cli_id else []
     if not files:
         return "waiting", None      # журнала нет: момент начала неизвестен
@@ -366,7 +378,7 @@ def status(cli_id, now, busy=False):
     mark = mtime(compact_marker(cli_id))
     if mark:
         # сжатие кончилось (compact_boundary), сорвалось (ошибка) или отменено (чат пошёл дальше)
-        after = [e for e in entries if e.get("timestamp") and ts(e) >= mark - 1]
+        after = [e for e in entries if e.get("timestamp") and ts(e) > mark]     # запрос перед автосжатием — до метки
         over = any(e.get("subtype") == "compact_boundary" or e.get("type") == "assistant"
                    or (e.get("type") == "user" and not tool_result(e) and not local_command(e)) for e in after)
         if now - mark < STALE and not over:
@@ -377,17 +389,19 @@ def status(cli_id, now, busy=False):
             pass
 
     last = next((e for e in reversed(entries) if e.get("type") in ("user", "assistant")), None)
-    if not last:
-        return "waiting", changed
+    if not last:    # окно кончилось на записях без user/assistant (progress): верить реестру
+        return ("thinking", _turns.get(path, changed)) if busy else ("waiting", changed)
     if last["type"] == "assistant":
         if last.get("isApiErrorMessage"):
             return "error", ts(last)
         # конец хода: end_turn, а также stop_sequence, refusal, max_tokens
         if (last.get("message") or {}).get("stop_reason") not in (None, "tool_use"):
-            return "waiting", ts(last)
+            _turns.pop(path, None)
+            return "done", ts(last)
     elif interrupted(last) or local_command(last):
+        _turns.pop(path, None)
         return "waiting", ts(last)
-    elif "<task-notification>" in text_of(last)[:300]:
+    elif first_text(last).startswith("<task-notification>"):
         # уведомление фоновой задачи после ошибки API — ход не начат, ошибка остаётся
         prev = next((e for e in reversed(entries) if e.get("type") == "assistant"), None)
         if prev and prev.get("isApiErrorMessage"):
@@ -402,9 +416,12 @@ def status(cli_id, now, busy=False):
         return "waiting", changed
     if tools & CODE_TOOLS:
         return "coding", ts(last)
-    turn = next((e for e in reversed(entries)
-                 if e.get("type") == "user" and not tool_result(e) and not e.get("isMeta")), None)
-    return "thinking", ts(turn) if turn else changed
+    # начало хода — запрос пользователя; итог автосжатия посреди хода (isCompactSummary) — не начало
+    turn = next((e for e in reversed(entries) if e.get("type") == "user" and not tool_result(e)
+                 and not e.get("isMeta") and not e.get("isCompactSummary")), None)
+    if turn:
+        _turns[path] = ts(turn)
+    return "thinking", _turns.get(path, changed)
 
 
 # ---- слова
@@ -657,8 +674,8 @@ class Presence:
                     self.event, self.event_until = w, now + EVENT
             self.sid, self.sid_local, self.word = s.get("sessionId"), local, None
 
-        if not local:
-            title, kind, since = conf["title_no_chat" if s.get("nochat") else "title_cloud"], "nochat", None
+        if not local:     # у облачного чата состояния нет, только название
+            title, kind, since = (conf["title_no_chat"], "nochat", None) if s.get("nochat") else (conf["title_cloud"], "cloud", None)
         else:
             title = s.get("title") if isinstance(s.get("title"), str) else ""
             title = title.strip() or conf["title_untitled"]
@@ -668,10 +685,10 @@ class Presence:
             kind, since = status(s.get("cliSessionId"), now, busy=reg.get("status") == "busy")
             if reg.get("status") == "waiting" and reg.get("waitingFor") in PERMISSION:
                 kind, since = "permission", (num(reg.get("statusUpdatedAt")) or now * 1000) / 1000
-            elif kind == "waiting" and background(s.get("cliSessionId"), now):
+            elif kind in ("waiting", "done") and background(s.get("cliSessionId"), now, since):
                 kind = "background"
-            elif kind == "waiting" and since and now - since < DONE:
-                kind = "done"
+            elif kind == "done" and not (since and now - since < DONE):
+                kind = "waiting"
 
         clock = datetime.datetime.fromtimestamp(now)
         if kind != self.kind:
@@ -684,15 +701,20 @@ class Presence:
         # возраст сессии — от создания или от последнего /compact (метка хука), что позже
         cli = s.get("cliSessionId")
         created = max(num(s.get("createdAt")) / 1000, (mtime(compacted_marker(cli)) if isinstance(cli, str) else 0) or 0) or None
-        exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now, created)
-        if self.word not in (exclusive or special + pool) or now - self.word_at > WORD_EVERY:
-            self.word, self.word_at = pick(self.word, exclusive, special, pool), now
+        if kind == "cloud":
+            self.word = None
+        else:
+            exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now, created)
+            if self.word not in (exclusive or special + pool) or now - self.word_at > WORD_EVERY:
+                self.word, self.word_at = pick(self.word, exclusive, special, pool), now
 
         word, shown = (self.event, "event") if self.event and now < self.event_until else (self.word, kind)
-        activity = {"details": clip(title), "state": clip(decorate(word, shown)),
+        activity = {"details": clip(title), "state": clip(word and decorate(word, shown)),
                     "timestamps": {"start": start * 1000},
                     "assets": {"large_image": conf["image"], "large_text": clip(conf["image_text"])}}
-        if conf["state_icons"]:
+        if not activity["state"]:
+            del activity["state"]       # облако: только название
+        if conf["state_icons"] and kind != "cloud":
             activity["assets"]["small_image"] = kind    # ключ в Art Assets = имя состояния, см. docs/icons
             activity["assets"]["small_text"] = clip(conf["labels"].get(kind) or LABELS.get(kind))
         if STATUS_DISPLAY.get(conf["status_display"]):

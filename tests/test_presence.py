@@ -62,7 +62,7 @@ class Sandbox(unittest.TestCase):
 class Status(Sandbox):
     def test_states(self):
         cases = {
-            "waiting": [user("привет"), assistant(TEXT, "end_turn")],
+            "done": [user("привет"), assistant(TEXT, "end_turn")],
             "thinking": [user("привет")],
             "coding": [user("правь"), assistant(tool("Edit"), "tool_use")],
             "choice": [user("спроси"), assistant(tool("AskUserQuestion"), "tool_use")],
@@ -76,7 +76,7 @@ class Status(Sandbox):
         for reason in ("stop_sequence", "refusal", "max_tokens"):
             with self.subTest(reason):
                 p._cache.clear()
-                self.assertEqual(self.state(user("x"), assistant(TEXT, reason)), "waiting")
+                self.assertEqual(self.state(user("x"), assistant(TEXT, reason)), "done")
 
     def test_interrupt_is_waiting(self):
         self.assertEqual(self.state(user("x"), assistant(tool("Bash"), "tool_use"),
@@ -105,7 +105,7 @@ class Status(Sandbox):
 
     def test_garbage_lines_ignored(self):
         self.assertEqual(self.state(user("x"), assistant(TEXT, "end_turn"), raw='[1]\n"str"\n{"type": "us'),
-                         "waiting")
+                         "done")
 
     def test_null_timestamp(self):
         self.assertEqual(self.state({"type": "user", "timestamp": None, "message": {"content": "x"}}), "thinking")
@@ -143,6 +143,16 @@ class Status(Sandbox):
             p.cache_tick()
         self.assertFalse(p._cache)
 
+    def test_synchronous_subagent_is_not_background(self):
+        # п3-01: субагент писал до конца хода — это был синхронный Agent, после ответа «Готово»
+        d = f"{self.dir.name}/projects/p/s1/subagents"
+        os.makedirs(d)
+        open(d + "/agent-a.jsonl", "w").close()
+        os.utime(d + "/agent-a.jsonl", (T0 - 5, T0 - 5))
+        self.assertFalse(p.background("s1", T0 + 10, ended=T0))
+        os.utime(d + "/agent-a.jsonl", (T0 + 8, T0 + 8))      # пишет и после ответа — фон
+        self.assertTrue(p.background("s1", T0 + 10, ended=T0))
+
     def test_background_agents(self):
         d = f"{self.dir.name}/projects/p/s1/subagents/workflows/wf_1"
         os.makedirs(d)
@@ -161,9 +171,76 @@ class Status(Sandbox):
         self.assertEqual(p.status("s1", T0 + 20)[0], "compacting")
         # сжатие закончилось — compact_boundary после метки, метка удалена
         self.journal(user("x"), {"type": "system", "subtype": "compact_boundary", "timestamp": iso(T0 + 30)},
-                     user("This session is being continued…", T0 + 30, isCompactSummary=True))
+                     user("This session is being continued…", T0 + 30, isCompactSummary=True),
+                     user("<local-command-stdout>Compacted</local-command-stdout>", T0 + 31))
         self.assertEqual(p.status("s1", T0 + 40)[0], "waiting")
         self.assertFalse(os.path.exists(marker))
+
+    def test_api_error_is_error(self):
+        # п4-04: ошибка API последней записью — «Ошибка» с её времени
+        self.journal(user("x"), assistant(TEXT, "stop_sequence", T0 + 3, isApiErrorMessage=True))
+        self.assertEqual(p.status("s1", T0 + 5), ("error", T0 + 3))
+
+    def test_turn_start_is_since(self):
+        # п4-04: «думает» считается от запроса, а не от последней записи
+        self.journal(user("x", T0 - 100), assistant(tool("Bash"), "tool_use", T0 - 50))
+        self.assertEqual(p.status("s1", T0 + 5), ("thinking", T0 - 100))
+
+    def test_long_turn_keeps_its_start(self):
+        # п3-02: запрос ушёл из окна read_tail — начало хода помнится
+        self.journal(user("x", T0 - 1200), assistant(tool("Read"), "tool_use", T0 - 1100))
+        self.assertEqual(p.status("s1", T0, busy=True)[1], T0 - 1200)
+        big = [e for i in range(20) for e in (assistant(tool("Read"), "tool_use", T0 - 1000 + i),
+               user([{"type": "tool_result", "content": "x" * 2000}], T0 - 1000 + i))]
+        with mock.patch.object(p, "TAIL", 4096):
+            p._cache.clear()
+            self.journal(user("x", T0 - 1200), *big)
+            self.assertEqual(p.status("s1", T0, busy=True), ("thinking", T0 - 1200))
+
+    def test_esc_and_local_commands_are_not_a_reply(self):
+        # п3-03: Esc и /model — «ждёт», не «ответил»
+        for last in (user("[Request interrupted by user]", T0 + 3),
+                     user("<command-name>/model</command-name>", T0 + 3),
+                     user("<local-command-stdout>Set model</local-command-stdout>", T0 + 3)):
+            with self.subTest(last["message"]["content"]):
+                p._cache.clear()
+                self.journal(user("x", T0 - 3600), assistant(TEXT, "end_turn", T0 - 3500), last)
+                self.assertEqual(p.status("s1", T0 + 5)[0], "waiting")
+
+    def test_prompt_just_before_autocompact(self):
+        # п3-04: запрос за полсекунды до метки сжатия не отменяет сжатие
+        os.makedirs(p.STATE_DIR)
+        marker = p.compact_marker("s1")
+        open(marker, "w").close()
+        os.utime(marker, (T0 + 10, T0 + 10))
+        self.journal(user("x", T0 + 9.5))
+        self.assertEqual(p.status("s1", T0 + 20)[0], "compacting")
+
+    def test_autocompact_mid_turn_is_thinking(self):
+        # п3-05: итог автосжатия посреди хода — ход продолжается, с прежнего начала
+        self.journal(user("x", T0 - 100), assistant(tool("Bash"), "tool_use", T0 - 90),
+                     user([{"type": "tool_result", "content": "ok"}], T0 - 80),
+                     {"type": "system", "subtype": "compact_boundary", "timestamp": iso(T0 - 10)},
+                     user("This session is being continued…", T0 - 10, isCompactSummary=True))
+        self.assertEqual(p.status("s1", T0, busy=True), ("thinking", T0 - 100))
+
+    def test_quoted_command_tag_starts_a_turn(self):
+        # п3-06: тег команды посреди запроса — это цитата
+        for text in ("Почему в журнале <command-name>/compact</command-name>?",
+                     [{"type": "text", "text": "Разбери <local-command-stdout>abc</local-command-stdout>"}]):
+            with self.subTest(text):
+                p._cache.clear()
+                self.assertEqual(self.state(user("x"), assistant(TEXT, "end_turn"), user(text)), "thinking")
+
+    def test_progress_beyond_window_trusts_registry(self):
+        # п2-10: окно до 8 МБ; дальше записей user/assistant нет — реестр «busy» важнее
+        self.assertEqual(p.TAIL_MAX, 8 * 1024 * 1024)
+        progress = "\n".join(json.dumps({"type": "progress", "data": "x" * 500}) for _ in range(40))
+        with mock.patch.multiple(p, TAIL=1024, TAIL_MAX=4096):
+            self.journal(user("x", T0 - 100), raw=progress + "\n")
+            self.assertEqual(p.status("s1", T0 + 5, busy=True)[0], "thinking")
+            p._cache.clear()
+            self.assertEqual(p.status("s1", T0 + 5)[0], "waiting")
 
     def test_hook_writes_marker(self):
         self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto"})
@@ -278,7 +355,7 @@ class Card(Sandbox):
             fh.write("[фон]\nРазмножается, как агент Смит\n")
         with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0,
                                  active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
-                                 registry=lambda: {}, background=lambda cli, now: True,
+                                 registry=lambda: {}, background=lambda cli, now, ended=None: True,
                                  status=lambda cli, now, busy=False: ("waiting", T0 + 90)):
             activity, kind = p.Presence(conf).build(T0 + 100)
         self.assertEqual((kind, activity["state"], activity["assets"]["small_image"]),
@@ -290,6 +367,31 @@ class Card(Sandbox):
         activity, _ = self.build({}, title_private="Приватная сессия")          # п4-03: hide.txt → карточка
         self.assertEqual(activity["details"], "Приватная сессия")
         self.assertNotIn("Чат", json.dumps(activity, ensure_ascii=False))
+
+    def card(self, session, status, now=T0 + 100, **conf):
+        conf = dict(p.DEFAULTS, client_id="1", state_icons=True, **conf)
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write("[готово]\nГотово\n[ждёт]\nЖдёт\n[без чата]\nЛобби\n")
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0,
+                                 active_session=lambda now: session, registry=lambda: {},
+                                 background=lambda cli, now, ended=None: False, status=lambda cli, now, busy=False: status):
+            return p.Presence(conf).build(now)
+
+    def test_done_only_for_a_fresh_reply(self):
+        # п4-04: «Готово» 30 с после ответа, потом «Ждёт»
+        chat = {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"}
+        self.assertEqual(self.card(chat, ("done", T0 + 90))[1], "done")
+        self.assertEqual(self.card(chat, ("done", T0 + 50))[1], "waiting")
+        self.assertEqual(self.card(chat, ("waiting", T0 + 99))[1], "waiting")
+
+    def test_cloud_and_main_menu(self):
+        # п3-07: облако — только название, без значка и слов главного экрана; п4-04: подписи не перепутаны
+        activity, kind = self.card({"sessionId": "session_x", "cloud": True}, None, title_cloud="Облако", title_no_chat="Меню")
+        self.assertEqual((kind, activity["details"]), ("cloud", "Облако"))
+        self.assertNotIn("state", {k for k, v in activity.items() if v})
+        self.assertNotIn("small_image", activity["assets"])
+        activity, kind = self.card({"sessionId": None, "nochat": True}, None, title_cloud="Облако", title_no_chat="Меню")
+        self.assertEqual((kind, activity["details"], activity["state"]), ("nochat", "Меню", "Лобби"))
 
     def test_icon_label_from_config(self):
         activity, _ = self.build({}, state_icons=True, labels={"thinking": "Думает"})
