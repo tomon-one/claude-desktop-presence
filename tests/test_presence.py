@@ -3,6 +3,7 @@ import datetime, json, os, socket, struct, subprocess, sys, tempfile, threading,
 from unittest import mock
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
+os.environ["CDP_LANG"] = "ru"      # сообщения в проверках — по-русски, какая бы ни была локаль (CI — C.UTF-8)
 sys.path.insert(0, ROOT)
 import claude_desktop_presence as p
 
