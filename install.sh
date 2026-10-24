@@ -29,14 +29,19 @@ done
 export CDP_LANG=$lang
 
 # пути — как их увидит служба: XDG_CONFIG_HOME и XDG_CACHE_HOME менеджера systemd --user, а не этой оболочки
+# значение переменной из show-environment; с пробелами и спецзнаками systemctl печатает его как $'…'
+manager_var() {
+    local v
+    v=$(sed -n "s/^$1=//p" <<<"$env" | head -n 1)
+    if [[ $v == \$\'*\' ]]; then eval "v=$v"; fi     # только экранирование systemctl, без подстановок
+    printf '%s' "$v"
+}
 if env=$(systemctl --user show-environment 2>/dev/null); then
-    cfg=$(sed -n 's/^XDG_CONFIG_HOME=//p' <<<"$env") cache=$(sed -n 's/^XDG_CACHE_HOME=//p' <<<"$env")
+    cfg=$(manager_var XDG_CONFIG_HOME) cache=$(manager_var XDG_CACHE_HOME)
     cfg=${cfg:-$HOME/.config} cache=${cache:-$HOME/.cache}
 else
     cfg=${XDG_CONFIG_HOME:-$HOME/.config} cache=${XDG_CACHE_HOME:-$HOME/.cache}
 fi
-# метки сжатия: хук пишет их в окружении сессии (как у этой оболочки), служба читает там же — путь в юнит
-state=${XDG_CACHE_HOME:-$HOME/.cache}
 bin=$HOME/.local/bin/claude-desktop-presence
 conf=$cfg/claude-desktop-presence
 unit=$cfg/systemd/user/claude-desktop-presence.service
@@ -77,10 +82,15 @@ if action == "add" and ours or action == "remove" and not ours:
     sys.exit(0)
 if action == "add":
     entries = entries + [{"hooks": [{"type": "command", "command": cmd}]}]
-else:   # только наш хук: чужие хуки и matcher той же записи остаются
-    entries = [e if not any(h.get("command") == cmd for h in e.get("hooks", []))
-               else {**e, "hooks": [h for h in e["hooks"] if h.get("command") != cmd]} for e in entries]
-    entries = [e for e in entries if e.get("hooks")]
+else:   # только наш хук: чужие хуки и matcher той же записи остаются; пустой стала наша запись — убрать её
+    kept = []
+    for e in entries:
+        if any(h.get("command") == cmd for h in e.get("hooks", [])):
+            e = {**e, "hooks": [h for h in e["hooks"] if h.get("command") != cmd]}
+            if not e["hooks"]:
+                continue
+        kept.append(e)
+    entries = kept
 hooks["PreCompact"] = entries
 if not entries:
     del hooks["PreCompact"]
@@ -114,7 +124,8 @@ if (( uninstall )); then
     systemctl --user disable --now claude-desktop-presence 2>/dev/null || true
     settings_hook remove || true
     rm -f "$bin" "$unit"
-    rm -rf "$cache/claude-desktop-presence" "$state/claude-desktop-presence"
+    rm -rf "$cache/claude-desktop-presence" "${XDG_CACHE_HOME:-$HOME/.cache}/claude-desktop-presence"
+    rm -f "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/claude-desktop-presence.dir"
     systemctl --user daemon-reload 2>/dev/null || true
     if [[ -d $conf ]]; then say "удалено; настройки остались в $conf" "removed; settings are kept in $conf"
     else say "удалено" "removed"; fi
@@ -125,8 +136,12 @@ fi
 # служба запускается тем же python3, который проверен здесь: у systemd --user свой PATH, там бывает старый
 py=$(command -v python3) || die "нет python3" "python3 not found"
 "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))' || die "нужен Python 3.11+ ($py)" "Python 3.11+ is required ($py)"
+# из venv — его базовый python: venv удалят или пересоздадут, а служба останется
+py=$("$py" -c 'import sys; print(getattr(sys, "_base_executable", "") or sys.executable)')
 
 mkdir -p "$(dirname "$bin")" "$conf" "$(dirname "$unit")"
+chmod go-rwx "$conf"     # от прошлых версий бывает 755
+[[ -f $conf/hide.txt ]] && chmod go-rwx "$conf/hide.txt"
 if (( link )); then ln -sf "$PWD/claude_desktop_presence.py" "$bin"; else install -m 755 claude_desktop_presence.py "$bin"; fi
 if [[ ! -e $conf/config.toml ]]; then
     if [[ $lang == en ]]; then cp config.example.en.toml "$conf/config.toml"; else cp config.example.toml "$conf/config.toml"; fi
@@ -171,9 +186,23 @@ fi
 "$py" claude_desktop_presence.py --update-words "words/$lang.txt" "$conf/words.txt" \
     || say "words.txt не обновлён, установка продолжается" "words.txt was not updated, installation goes on" >&2
 [[ -e $conf/hide.txt ]] || cp "words/hide.$lang.txt" "$conf/hide.txt"
-py_unit=${py//%/%%} state_unit=${state//%/%%}
-sed -e "s|^ExecStart=|ExecStart=\"$py_unit\" |" -e "s|^\[Service\]$|&\nEnvironment=\"XDG_CACHE_HOME=$state_unit\"|" \
-    claude-desktop-presence.service > "$unit"
+# юнит: python в кавычках systemd (% удваивается), язык сообщений службы
+"$py" - "$py" "$lang" claude-desktop-presence.service "$unit" <<'EOF'
+import sys
+py, lang, src, dst = sys.argv[1:]
+if any(c in py for c in '"\\') or not py.isprintable():
+    sys.exit(f"{py}: systemd не запустит программу по пути с кавычкой или обратной чертой")
+quoted = '"' + py.replace("%", "%%") + '"'     # $ в пути программы systemd не раскрывает
+out = []
+for line in open(src, encoding="utf-8").read().splitlines():
+    if line.startswith("ExecStart="):
+        line = "ExecStart=" + quoted + " " + line[len("ExecStart="):]
+    out.append(line)
+    if line == "[Service]":
+        out.append(f"Environment=CDP_LANG={lang}")
+with open(dst, "w", encoding="utf-8") as fh:
+    fh.write("\n".join(out) + "\n")
+EOF
 if (( hook )); then
     settings_hook add || say "продолжаю без хука: сжатие в карточке видно не будет" "going on without the hook: compacting will not show on the card"
 fi

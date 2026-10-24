@@ -66,6 +66,12 @@ DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words":
             "title_private": "Private session", "title_untitled": "Untitled"}
 
 
+def t(ru, en):
+    """Сообщение на языке установки: CDP_LANG пишет установщик в юнит, иначе — по локали."""
+    lang = os.environ.get("CDP_LANG") or ("ru" if (os.environ.get("LC_ALL") or os.environ.get("LANG") or "").startswith("ru") else "en")
+    return en if lang == "en" else ru
+
+
 def read(path):
     with open(path, encoding="utf-8-sig") as fh:
         return fh.read()
@@ -87,13 +93,13 @@ def config():
         fail(e)
     for key, default in DEFAULTS.items():
         if key != "client_id" and not isinstance(conf[key], type(default)):
-            fail(f"{key}: ожидается {type(default).__name__}")
+            fail(t(f"{key}: ожидается {type(default).__name__}", f"{key}: expected {type(default).__name__}"))
     if not str(conf["client_id"]).isdecimal():
-        fail("client_id — Application ID приложения Discord, только цифры")
+        fail(t("client_id — Application ID приложения Discord, только цифры", "client_id is the Discord application ID, digits only"))
     if not all(isinstance(v, str) for v in conf["labels"].values()):
-        fail("labels: подписи должны быть строками")
+        fail(t("labels: подписи должны быть строками", "labels: labels must be strings"))
     if conf["status_display"] not in STATUS_DISPLAY:
-        fail(f"status_display: одно из {', '.join(STATUS_DISPLAY)}")
+        fail(t(f"status_display: одно из {', '.join(STATUS_DISPLAY)}", f"status_display: one of {', '.join(STATUS_DISPLAY)}"))
     return conf
 
 
@@ -328,6 +334,37 @@ def transcripts(cli_id):
     return TRANSCRIPTS.replace("{}", glob.escape(cli_id))
 
 
+def runtime_dir():
+    """XDG_RUNTIME_DIR — один и тот же у службы и у хука (logind), в отличие от XDG_CACHE_HOME."""
+    return os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+
+
+def state_pointer():
+    """Здесь служба оставляет путь своего каталога меток — хук пишет туда, даже если его XDG_CACHE_HOME другой."""
+    return os.path.join(runtime_dir(), "claude-desktop-presence.dir")
+
+
+def announce_state_dir():
+    try:
+        os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+        write_over(state_pointer(), STATE_DIR + "\n")
+    except OSError:
+        pass
+
+
+def hook_state_dir():
+    """Каталог меток для хука: тот, что назвала служба (если он свой), иначе по своему окружению."""
+    global STATE_DIR
+    try:
+        named = read(state_pointer()).strip()
+    except (OSError, ValueError):
+        return
+    if named and os.path.isabs(named):
+        mine, STATE_DIR = STATE_DIR, named
+        if not state_ok():
+            STATE_DIR = mine
+
+
 def state_ok():
     """Каталог меток — свой: не ссылка и не чужой (общий XDG_CACHE_HOME), иначе метки не читать и не писать."""
     try:
@@ -346,7 +383,8 @@ def compacted_marker(cli_id):
     return os.path.join(STATE_DIR, "compacted-" + cli_id)
 
 
-def read_tail(path):
+def read_tail(path, enough=lambda entries: any(e.get("type") in ("user", "assistant") for e in entries)):
+    """Записи с конца журнала: окно растёт, пока в нём нет нужного (по умолчанию — хоть одной user/assistant)."""
     total, size = os.path.getsize(path), TAIL
     while True:
         with open(path, "rb") as fh:
@@ -360,7 +398,7 @@ def read_tail(path):
                 continue    # первая строка после seek обрезана, последняя может дописываться
             if isinstance(e, dict):
                 entries.append(e)
-        if size >= total or size >= TAIL_MAX or any(e.get("type") in ("user", "assistant") for e in entries):
+        if size >= total or size >= TAIL_MAX or enough(entries):
             return entries
         size *= 4
 
@@ -380,7 +418,7 @@ def background(cli_id, now, ended=None):
     return now - newest < BACKGROUND and (ended is None or newest > ended + 1)
 
 
-_turns = {}     # журнал → начало текущего хода: в длинном ходе запрос уходит из окна read_tail
+_turns = {}     # журнал → (начало текущего хода, когда его подтвердили): запрос уходит из окна read_tail
 _changes = {}   # журнал → (mtime, монотонное время, когда его увидели)
 
 
@@ -415,12 +453,13 @@ def journal_status(cli_id, now, busy=False):
 
     mark = mtime(compact_marker(cli_id)) if state_ok() else None
     if mark:
+        fresh = age(compact_marker(cli_id), mark, now) < STALE      # метка «из будущего» стареет по монотонным часам
         mark = min(mark, now)
         # сжатие кончилось (compact_boundary), сорвалось (ошибка) или отменено (чат пошёл дальше)
         after = [e for e in entries if e.get("timestamp") and ts(e) > mark]     # запрос перед автосжатием — до метки
         over = any(e.get("subtype") == "compact_boundary" or e.get("type") == "assistant"
                    or (e.get("type") == "user" and not tool_result(e) and not local_command(e)) for e in after)
-        if now - mark < STALE and not over:
+        if fresh and not over:
             return "compacting", mark
         try:
             os.remove(compact_marker(cli_id))
@@ -429,9 +468,10 @@ def journal_status(cli_id, now, busy=False):
 
     last = next((e for e in reversed(entries) if e.get("type") in ("user", "assistant")), None)
     if not last:    # окно кончилось на записях без user/assistant (progress): верить реестру
-        return ("thinking", _turns.get(path, changed)) if busy else ("waiting", changed)
+        return ("thinking", turn_start(path, entries, now) or changed) if busy else ("waiting", changed)
     if last["type"] == "assistant":
         if last.get("isApiErrorMessage"):
+            _turns.pop(path, None)
             return "error", ts(last)
         # конец хода: end_turn, а также stop_sequence, refusal, max_tokens
         if (last.get("message") or {}).get("stop_reason") not in (None, "tool_use"):
@@ -452,15 +492,33 @@ def journal_status(cli_id, now, busy=False):
     if tools & ASK_TOOLS:
         return "choice", ts(last)
     if age(path, changed, now) > STALE and not busy:
+        _turns.pop(path, None)
         return "waiting", changed
     if tools & CODE_TOOLS:
         return "coding", ts(last)
-    # начало хода — запрос пользователя; итог автосжатия посреди хода (isCompactSummary) — не начало
-    turn = next((e for e in reversed(entries) if e.get("type") == "user" and not tool_result(e)
-                 and not e.get("isMeta") and not e.get("isCompactSummary")), None)
+    return "thinking", turn_start(path, entries, now) or changed
+
+
+def is_turn_start(e):
+    """Запрос пользователя; итог автосжатия посреди хода (isCompactSummary) и вставки скиллов — не начало."""
+    return e.get("type") == "user" and not tool_result(e) and not e.get("isMeta") and not e.get("isCompactSummary")
+
+
+def turn_start(path, entries, now):
+    """Начало текущего хода. Запроса нет в хвосте — помнить с прошлых опросов, но только если чат смотрели
+    без перерыва (иначе ход мог смениться без нас); не видели — поискать дальше в журнале, до TAIL_MAX."""
+    turn = next((e for e in reversed(entries) if is_turn_start(e)), None)
     if turn:
-        _turns[path] = ts(turn)
-    return "thinking", _turns.get(path, changed)
+        start = ts(turn)
+    else:
+        start, seen = _turns.get(path, (None, 0))
+        if start is None or now - seen > 3 * POLL:
+            older = read_tail(path, lambda es: any(map(is_turn_start, es)))
+            turn = next((e for e in reversed(older) if is_turn_start(e)), None)
+            start = ts(turn) if turn else None
+    if start is not None:
+        _turns[path] = (start, now)
+    return start
 
 
 # ---- слова
@@ -494,7 +552,8 @@ def lines(path):
     except FileNotFoundError:
         return []
     except (OSError, ValueError) as e:
-        note = f"{os.path.basename(path)} не читается ({failure(e)}), слова по умолчанию"
+        note = t(f"{os.path.basename(path)} не читается ({failure(e)}), слова по умолчанию",
+                 f"{os.path.basename(path)} is unreadable ({failure(e)}), default words")
         if note != _warned:
             print(note, file=sys.stderr, flush=True)
             _warned = note
@@ -574,6 +633,23 @@ def merge_words(shipped, mine, seen):
     return "\n".join(out) + "\n", sum(map(len, new.values())), dropped, keys
 
 
+def released_keys(released, mine):
+    """Ключи релиза, с которого взят words.txt: самый поздний, чьи новые фразы в нём есть («версия\tключ» по строкам)."""
+    versions = {}
+    for row in released.splitlines():
+        v, _, key = row.partition("\t")
+        if key:
+            versions.setdefault(v, set()).add(key)
+    have = merge_words(mine, mine, set())[3]     # ключи своего words.txt
+    order = sorted(versions, key=lambda v: tuple(int(x) for x in v.split(".") if x.isdigit()))
+    chosen, before = order[0] if order else None, set()
+    for v in order:
+        if (versions[v] - before) & have:
+            chosen = v
+        before = versions[v]
+    return versions.get(chosen, set())
+
+
 def write_over(path, text, mode_from=None):
     """Заменить файл целиком; ссылку (дотфайлы) не рвать — писать туда, куда она ведёт."""
     path = os.path.realpath(path)
@@ -586,25 +662,23 @@ def write_over(path, text, mode_from=None):
 
 def update_words(shipped_path, mine_path):
     """./install.sh: дописать в свой words.txt новые фразы из words/<язык>.txt. Копия — words.txt.bak.
-    .seen ещё нет (обновление с 0.1.x) — фразы прошлых релизов (words/released.txt) уже предлагались."""
+    .seen ещё нет (обновление с 0.1.x) — фразы того релиза, с которого words.txt (words/released.txt), уже предлагались."""
     seen_path = mine_path + ".seen"
+    mine = read(mine_path)
     try:
         seen = set(read(seen_path).splitlines())
     except FileNotFoundError:
         try:
-            seen = set(read(os.path.join(os.path.dirname(shipped_path), "released.txt")).splitlines())
+            seen = released_keys(read(os.path.join(os.path.dirname(shipped_path), "released.txt")), mine)
         except FileNotFoundError:
             seen = set()
-    mine = read(mine_path)
     text, added, dropped, keys = merge_words(read(shipped_path), mine, seen)
     if added or dropped:
         write_over(mine_path + ".bak", mine, mine_path)      # прежний .bak бывает только для чтения: заменить
         write_over(mine_path, text, mine_path)
     write_over(seen_path, "\n".join(sorted(seen | keys)) + "\n")
-    if os.environ.get("CDP_LANG") == "en":
-        print(f"words.txt: {added} new phrases, {dropped} repeats removed" + (f" (copy: {mine_path}.bak)" if added or dropped else ""))
-    else:
-        print(f"words.txt: новых фраз {added}, повторов убрано {dropped}" + (f" (копия: {mine_path}.bak)" if added or dropped else ""))
+    print(t(f"words.txt: новых фраз {added}, повторов убрано {dropped}" + (f" (копия: {mine_path}.bak)" if added or dropped else ""),
+            f"words.txt: {added} new phrases, {dropped} repeats removed" + (f" (copy: {mine_path}.bak)" if added or dropped else "")))
 
 
 def in_hours(hour, span):
@@ -862,9 +936,12 @@ def hook():
         sid = data.get("session_id")
         if data.get("hook_event_name") == "PreCompact" and isinstance(sid, str) and re.fullmatch(r"[\w-]{1,100}", sid):
             os.umask(0o077)     # метки с id сессий — только свои
+            hook_state_dir()
             os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
             if not state_ok():
                 return
+            if os.stat(STATE_DIR).st_mode & 0o077:      # каталог от старой версии (755) — закрыть
+                os.chmod(STATE_DIR, 0o700)
             open(compact_marker(sid), "w").close()
             open(compacted_marker(sid), "w").close()
             marks = glob.escape(STATE_DIR) + "/"
@@ -899,12 +976,12 @@ class Link:
         try:
             if not self.dc.sock:
                 self.dc.connect()
-                note = "подключился к Discord · "
+                note = t("подключился к Discord · ", "connected to Discord · ")
             self.dc.set(activity)
             self.delay, self.dc.failed = POLL, None      # пауза сбрасывается, только когда карточка дошла
         except DiscordError as e:
             self.shown = activity   # то же самое не слать, связь не рвать
-            return f"Discord отклонил карточку: {e}"
+            return t(f"Discord отклонил карточку: {e}", f"Discord rejected the card: {e}")
         except InvalidClient:
             raise
         except (OSError, ValueError) as e:
@@ -913,9 +990,10 @@ class Link:
             self.dc.close()
             self.shown = "reconnect"
             self.retry_at, self.delay = now + self.delay, min(self.delay * 2, RETRY_MAX)
-            return f"ошибка: {e}"
+            return t(f"ошибка: {e}", f"error: {e}")
         self.shown = activity
-        return note + (f"→ {activity['state']}" if activity else "→ пусто")
+        # у облачного чата state нет (п5-06); название в лог не пишется
+        return note + ("→ " + (activity.get("state") or t("без состояния", "no state")) if activity else t("→ пусто", "→ empty"))
 
 
 def failure(e):
@@ -923,28 +1001,34 @@ def failure(e):
     tb = e.__traceback__
     while tb and tb.tb_next:
         tb = tb.tb_next
-    where = f" (строка {tb.tb_lineno})" if tb else ""
+    where = t(f" (строка {tb.tb_lineno})", f" (line {tb.tb_lineno})") if tb else ""
     if isinstance(e, OSError) and e.strerror:
         return f"{type(e).__name__}: {e.strerror}{where}"
     return type(e).__name__ + where
 
 
 def single():
-    """Второй экземпляр (служба уже идёт, а запустили руками) — выйти: иначе два соединения и разные слова."""
+    """Второй экземпляр (служба уже идёт, а запустили руками) — выйти с 0: иначе два соединения и разные слова,
+    а с ошибкой systemd перезапускал бы службу каждые 30 с. Без каталога runtime — без защиты, но не в чужой кэш."""
     import fcntl
-    run = os.environ.get("XDG_RUNTIME_DIR") or STATE_DIR
-    os.makedirs(run, mode=0o700, exist_ok=True)
-    fh = open(os.path.join(run, "claude-desktop-presence.lock"), "w")
+    try:
+        fh = open(os.path.join(runtime_dir(), "claude-desktop-presence.lock"), "w")
+    except OSError:
+        return None
     try:
         fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
-        sys.exit("уже запущена: systemctl --user status claude-desktop-presence")
+        fh.close()
+        print(t("уже запущена: systemctl --user status claude-desktop-presence",
+                "already running: systemctl --user status claude-desktop-presence"), file=sys.stderr)
+        sys.exit(0)
     return fh
 
 
 def main():
     conf = config()
     lock = single()     # держать открытым до выхода
+    announce_state_dir()
     presence, link, last, fails = Presence(conf), Link(str(conf["client_id"])), None, 0
     while True:
         cache_tick()
@@ -952,11 +1036,11 @@ def main():
             activity, _ = presence.build(time.time())
             msg, fails = link.update(activity, time.monotonic()), 0     # паузы — по монотонным часам
         except InvalidClient as e:
-            print(f"Discord: {e}, проверь client_id в config.toml", file=sys.stderr)
+            print(t(f"Discord: {e}, проверь client_id в config.toml", f"Discord: {e}, check client_id in config.toml"), file=sys.stderr)
             sys.exit(EX_CONFIG)
         except Exception as e:     # кривой файл Desktop или журнала — пропустить опрос, но не падать
             fails += 1
-            msg = f"сбой опроса: {failure(e)}"
+            msg = t("сбой опроса: ", "poll failed: ") + failure(e)
             if fails == FAILS_CLEAR:
                 link.update(None, time.monotonic())      # не держать в Discord застывшую карточку
         if msg and msg != last:    # одинаковые строки подряд не повторять
@@ -980,9 +1064,13 @@ if __name__ == "__main__":
     elif not args:
         main()
     else:
-        print(f"claude-desktop-presence {__version__}: Discord Rich Presence для Claude Desktop\n"
+        print(f"claude-desktop-presence {__version__}: Discord Rich Presence для Claude Desktop\n" + t(
               "  без ключей          служба (обычно её запускает systemd --user)\n"
               "  --hook              хук PreCompact Claude Code (читает stdin)\n"
               "  --update-words A B  дописать новые фразы из A в свой words.txt B\n"
-              "  --version           версия", file=sys.stdout if args[:1] in (["-h"], ["--help"]) else sys.stderr)
+              "  --version           версия",
+              "  no options          the service (usually started by systemd --user)\n"
+              "  --hook              Claude Code PreCompact hook (reads stdin)\n"
+              "  --update-words A B  add new phrases from A to your words.txt B\n"
+              "  --version           version"), file=sys.stdout if args[:1] in (["-h"], ["--help"]) else sys.stderr)
         sys.exit(0 if args[:1] in (["-h"], ["--help"]) else 2)

@@ -21,6 +21,16 @@ def assistant(content, stop, t=T0, **kw):
     return {"type": "assistant", "timestamp": iso(t), "message": {"content": content, "stop_reason": stop}, **kw}
 
 
+def write(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+
+
+def text_of_file(path):
+    with open(path) as fh:
+        return fh.read()
+
+
 def tool(name):
     return [{"type": "tool_use", "name": name}]
 
@@ -34,12 +44,14 @@ class Sandbox(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
         d = self.dir.name
+        p._turns.clear()
         os.makedirs(d + "/projects/p")
         os.makedirs(d + "/logs")
         self.patch = mock.patch.multiple(p, TRANSCRIPTS=d + "/projects/*/{}.jsonl", STATE_DIR=d + "/state",
                                          DESKTOP_LOGS=[d + "/logs/main.log", d + "/logs/main1.log"],
                                          SESSIONS=d + "/sessions/*/*/local_*.json",
-                                         REGISTRY=d + "/sessions-reg/*.json", CONF_DIR=d + "/conf")
+                                         REGISTRY=d + "/sessions-reg/*.json", CONF_DIR=d + "/conf",
+                                         runtime_dir=lambda: d)
         self.patch.start()
         p._cache.clear()
         p._focus.clear()
@@ -188,6 +200,52 @@ class Status(Sandbox):
             self.assertEqual(p.status("s1", T0)[0], "thinking")
         with mock.patch("time.monotonic", return_value=100.0 + p.STALE + 1):
             self.assertEqual(p.status("s1", T0)[0], "waiting")
+
+    def test_hook_uses_the_dir_named_by_the_service(self):
+        # п5-02: служба называет свой каталог меток, хук пишет туда, даже если его XDG_CACHE_HOME другой
+        service_dir = self.dir.name + "/service-cache"
+        with mock.patch.object(p, "STATE_DIR", service_dir):
+            p.announce_state_dir()
+        self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1"})
+        self.assertEqual(sorted(os.listdir(service_dir)), ["compact-s1", "compacted-s1"])
+
+    def test_turn_start_memory_needs_continuous_watching(self):
+        # п5-03: ход прошёл без службы (чат не в фокусе) — старое начало не годится
+        big = [e for i in range(20) for e in (assistant(tool("Read"), "tool_use", T0 - 100 + i),
+               user([{"type": "tool_result", "content": "x" * 2000}], T0 - 100 + i))]
+        with mock.patch.object(p, "TAIL", 4096):
+            self.journal(user("ход 1", T0 - 5000), *big)
+            self.assertEqual(p.status("s1", T0, busy=True)[1], T0 - 5000)
+            p._cache.clear()
+            self.journal(user("ход 1", T0 - 5000), assistant(TEXT, "end_turn", T0 - 4000), user("ход 2", T0 - 1000), *big)
+            self.assertEqual(p.status("s1", T0 + 3600, busy=True)[1], T0 - 1000)
+
+    def test_error_forgets_turn_start(self):
+        p._turns[self.dir.name + "/projects/p/s1.jsonl"] = (T0 - 9999, T0)
+        self.journal(user("x"), assistant(TEXT, "stop_sequence", T0 + 3, isApiErrorMessage=True))
+        p.status("s1", T0 + 5)
+        self.assertNotIn(self.dir.name + "/projects/p/s1.jsonl", p._turns)
+
+    def test_turn_start_found_beyond_the_tail(self):
+        # п3-02: служба не видела начала хода (перезапуск) — ищет запрос дальше в журнале
+        p._turns.clear()
+        big = [e for i in range(20) for e in (assistant(tool("Read"), "tool_use", T0 - 100 + i),
+               user([{"type": "tool_result", "content": "x" * 2000}], T0 - 100 + i))]
+        with mock.patch.object(p, "TAIL", 4096):
+            self.journal(user("x", T0 - 1200), *big)
+            self.assertEqual(p.status("s1", T0, busy=True), ("thinking", T0 - 1200))
+
+    def test_compact_mark_from_the_future(self):
+        # п2-07: метка «из будущего» стареет по монотонным часам
+        os.makedirs(p.STATE_DIR, mode=0o700)
+        marker = p.compact_marker("s1")
+        open(marker, "w").close()
+        os.utime(marker, (T0 + 3600, T0 + 3600))
+        self.journal(user("x"), assistant(TEXT, "end_turn"))
+        with mock.patch("time.monotonic", return_value=50.0):
+            self.assertEqual(p.status("s1", T0 + 5)[0], "compacting")
+        with mock.patch("time.monotonic", return_value=50.0 + p.STALE + 1):
+            self.assertEqual(p.status("s1", T0 + 5)[0], "done")
 
     def test_api_error_is_error(self):
         # п4-04: ошибка API последней записью — «Ошибка» с её времени
@@ -342,7 +400,10 @@ class Registry(Sandbox):
         self.entry(4, "local_a", "idle", at=0)           # старая запись того же чата
         self.entry(0, "local_a", "idle", at=0)           # и ещё одна — glob может отдать её последней
         names = {0: "claude", 1: "claude", 2: "bash", 3: "claude", 4: "claude"}
-        with mock.patch.multiple(p, proc_name=lambda pid: names[pid], proc_start=lambda pid: 100):
+        reg_dir = self.dir.name + "/sessions-reg"
+        order = [f"{reg_dir}/{n}.json" for n in (1, 2, 3, 4, 0)]       # старые записи local_a — после свежей
+        with mock.patch.multiple(p, proc_name=lambda pid: names[pid], proc_start=lambda pid: 100), \
+                mock.patch("glob.glob", lambda pattern: order if pattern == p.REGISTRY else []):
             reg = p.registry()
         self.assertEqual(set(reg), {"local_a"})
         self.assertEqual(reg["local_a"]["waitingFor"], "permission prompt")
@@ -454,6 +515,34 @@ class Card(Sandbox):
                                  background=lambda cli, now, ended=None: False, status=lambda cli, now, busy=False: status):
             return p.Presence(conf).build(now)
 
+    def test_desktop_closed_shows_nothing(self):
+        # п4-15
+        with mock.patch.multiple(p, desktop_start=lambda: None, active_session=lambda now: 1 / 0):
+            self.assertEqual(p.Presence(dict(p.DEFAULTS, client_id="1")).build(T0), (None, None))
+
+    def test_morning_word_change_and_switch_event(self):
+        # п4-09: утро — первое ожидание за утро; слово меняется раз в WORD_EVERY; смена чата даёт событие
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write("[ждёт]\nА\nБ\nКофе @утро\n[событие]\nСмена @переключение 100\n")
+        morning = time.mktime((2026, 10, 2, 9, 0, 0, 0, 0, -1))
+        chat = [{"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"}]
+        state = [("waiting", morning - 100)]
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: morning - 3600,
+                                 active_session=lambda now: chat[0], registry=lambda: {},
+                                 background=lambda cli, now, ended=None: False,
+                                 status=lambda cli, now, busy=False: state[0]):
+            card = p.Presence(dict(p.DEFAULTS, client_id="1"))
+            self.assertEqual(card.build(morning)[0]["state"], "Кофе")
+            self.assertNotEqual(card.build(morning + p.WORD_EVERY + 1)[0]["state"], "Кофе")
+            words = {card.build(morning + p.WORD_EVERY + 2 + i)[0]["state"] for i in range(5)}
+            self.assertEqual(len(words), 1)                       # до WORD_EVERY слово держится
+            state[0] = ("thinking", morning + 100)
+            card.build(morning + 101)
+            state[0] = ("waiting", morning + 102)
+            self.assertNotEqual(card.build(morning + 103)[0]["state"], "Кофе")   # второе ожидание за утро — без утра
+            chat[0] = {"sessionId": "local_b", "title": "Другой", "cliSessionId": "s2"}
+            self.assertEqual(card.build(morning + 200)[0]["state"], "Смена")
+
     def test_done_only_for_a_fresh_reply(self):
         # п4-04: «Готово» 30 с после ответа, потом «Ждёт»
         chat = {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"}
@@ -534,6 +623,19 @@ class Proc(unittest.TestCase):
         self.assertIsNone(p.desktop_start())
         self.process(13, "claude-desktop", 90 * self.tck)
         self.assertEqual(p.desktop_start(), 1090)
+
+    def test_oldest_wins_whatever_the_order(self):
+        # п4-13: самый старый — не первый по порядку /proc
+        for i, pid in enumerate((10, 11, 12, 13, 14, 15)):
+            self.process(pid, "claude-desktop", (60 - i * 10) * self.tck)
+        self.assertEqual(p.desktop_start(), 1010)
+
+    def test_same_pid_new_start_is_a_new_desktop(self):
+        # п4-13: pid тот же, starttime другой — Desktop перезапущен, искать заново
+        self.process(11, "claude-desktop", 20 * self.tck)
+        self.assertEqual(p.desktop_start(), 1020)
+        self.process(11, "claude-desktop", 70 * self.tck)
+        self.assertEqual(p.desktop_start(), 1070)
 
     def test_boot_time_follows_clock_steps(self):
         # п2-06: btime перечитывается
@@ -652,13 +754,21 @@ class Command(unittest.TestCase):
                 self.assertEqual(rc, code)
                 self.assertIn(p.__version__, out)
 
+    def test_no_runtime_dir_no_lock_in_cache(self):
+        # п5-10: без каталога runtime блокировки нет, в STATE_DIR она не ложится
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(p, "runtime_dir", lambda: d + "/нет"), \
+                mock.patch.object(p, "STATE_DIR", d + "/state"):
+            self.assertIsNone(p.single())
+            self.assertFalse(os.path.exists(d + "/state"))
+
     def test_second_instance_exits(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": d}):
             first = p.single()
             self.addCleanup(first.close)
-            with self.assertRaises(SystemExit) as e, mock.patch("sys.stderr"):
+            with self.assertRaises(SystemExit) as e, mock.patch("sys.stderr") as err:
                 p.single()
-            self.assertIn("уже запущена", str(e.exception.code))
+            self.assertEqual(e.exception.code, 0)          # п5-07: не ошибка — systemd не перезапускает
+            self.assertIn("claude-desktop-presence", "".join(c.args[0] for c in err.write.call_args_list))
 
 
 class Words(unittest.TestCase):
@@ -862,7 +972,7 @@ class UpdateWords(unittest.TestCase):
             with open(src, "w") as fh:
                 fh.write(self.SHIPPED)
             with open(d + "/released.txt", "w") as fh:
-                fh.write("thinking\tновая\tnight\n")
+                fh.write("0.1.0\tthinking\tновая\tnight\n")
             with open(dst, "w") as fh:
                 fh.write("[думает]\nДумает\n[готово]\nГотово\n")
             with mock.patch("sys.stdout"):
@@ -872,9 +982,26 @@ class UpdateWords(unittest.TestCase):
             self.assertNotIn("Новая", text)       # была в 0.1.x, удалена самим
             self.assertIn("Агенты", text)         # действительно новая
 
+    def test_first_update_from_0_1_0_gets_phrases_of_0_1_1(self):
+        # п5-08: words.txt от 0.1.0 — фразы, появившиеся в 0.1.1 и 0.1.2, ещё не предлагались
+        released = "0.1.0\tthinking\tдумает\n0.1.1\tthinking\tдумает\n0.1.1\tthinking\tищет бензин\n"
+        self.assertEqual(p.released_keys(released, "[думает]\nДумает\n"), {"thinking\tдумает"})
+        self.assertEqual(p.released_keys(released, "[думает]\nДумает\nИщет бензин\n"),
+                         {"thinking\tдумает", "thinking\tищет бензин"})
+        with open(ROOT + "/words/released.txt") as fh:
+            real = fh.read()
+        with open(ROOT + "/words/ru.txt") as fh:
+            shipped = fh.read()
+        import subprocess as sp
+        old = sp.run(["git", "-C", ROOT, "show", "v0.1.0:words/ru.txt"], capture_output=True, text=True)
+        if old.returncode:
+            self.skipTest("нет тегов git")
+        text = p.merge_words(shipped, old.stdout, p.released_keys(real, old.stdout))[0]
+        self.assertIn("Clauding", text)          # фраза 0.1.2 приходит к пользователю 0.1.0
+
     def test_released_keys_cover_every_old_release(self):
         with open(ROOT + "/words/released.txt") as fh:
-            released = set(fh.read().splitlines())
+            released = {row.split("\t", 1)[1] for row in fh.read().splitlines()}
         # фразы 0.1.x на обоих языках; новых фраз 0.2 (Edgerunners 2) там нет
         self.assertIn("thinking\tseems hard", released)
         self.assertIn("thinking\tгенерирует", released)
@@ -895,21 +1022,30 @@ class UpdateWords(unittest.TestCase):
     def test_update_words_keeps_a_copy_and_remembers(self):
         with tempfile.TemporaryDirectory() as d:
             src, dst = os.path.join(d, "ru.txt"), os.path.join(d, "words.txt")
-            open(src, "w").write(self.SHIPPED)
-            open(dst, "w").write("[думает]\nДумает\nДумает\n")
+            write(src, self.SHIPPED)
+            write(dst, "[думает]\nДумает\nДумает\n")
             with mock.patch("sys.stdout"):
                 p.update_words(src, dst)
                 self.assertTrue(os.path.exists(dst + ".bak"))
                 os.remove(dst + ".bak")
                 p.update_words(src, dst)        # второй раз — ничего нового, копия не нужна
             self.assertFalse(os.path.exists(dst + ".bak"))
-            self.assertEqual(open(dst).read().count("Думает"), 1)
+            self.assertEqual(text_of_file(dst).count("Думает"), 1)
             os.chmod(dst, 0o600)
-            open(src, "a").write("Ещё\n")
+            write(src, self.SHIPPED + "Ещё\n")
             with mock.patch("sys.stdout"):
                 p.update_words(src, dst)
             self.assertEqual(os.stat(dst).st_mode & 0o777, 0o600)                   # п1-17: права не теряются
-            self.assertIn("thinking\tновая\tnight", open(dst + ".seen").read())
+            with open(dst + ".seen") as fh:
+                seen = fh.read()
+            self.assertIn("thinking\tновая\tnight", seen)
+            self.assertIn("background\tещё", seen)
+            with open(dst + ".seen", "a") as fh:
+                fh.write("thinking\tудалённая давно\n")
+            with mock.patch("sys.stdout"):
+                p.update_words(src, dst)
+            with open(dst + ".seen") as fh:
+                self.assertIn("thinking\tудалённая давно", fh.read())      # п4-08: старые ключи .seen не теряются
 
 
 class Config(unittest.TestCase):
@@ -946,7 +1082,8 @@ class Main(unittest.TestCase):
         def sleep(_):
             if next(sleeps, None) is None:
                 raise KeyboardInterrupt
-        with mock.patch.multiple(p, config=lambda: dict(p.DEFAULTS, client_id="1"), single=lambda: None), \
+        with mock.patch.multiple(p, config=lambda: dict(p.DEFAULTS, client_id="1"), single=lambda: None,
+                                 announce_state_dir=lambda: None), \
                 mock.patch.object(p.Presence, "build", lambda self, now: build()), \
                 mock.patch.object(p.Link, "update", lambda self, a, now: fake_update(a, now)), \
                 mock.patch("time.sleep", sleep), mock.patch("time.monotonic", return_value=42.0), \
@@ -1087,6 +1224,13 @@ class DiscordIPC(unittest.TestCase):
         self.assertTrue(link.update({"state": "x"}, T0 + 1).startswith("подключился"))      # другой сокет первым
         self.assertEqual(good.got[1][1]["cmd"], "SET_ACTIVITY")
         self.assertEqual(link.delay, p.POLL)
+
+    def test_cloud_card_log_line(self):
+        # п5-06: у облака нет state — строка лога без KeyError
+        self.fake((1, {"evt": "READY"}), (1, {"evt": None}))
+        link = p.Link("123")
+        self.addCleanup(link.dc.close)
+        self.assertTrue(link.update({"details": "Облако"}, T0).endswith("→ без состояния"))
 
     def test_invalid_client_through_link(self):
         # п4-05: неверный client_id не прячется за переподключениями

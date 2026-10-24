@@ -148,12 +148,84 @@ class Install(unittest.TestCase):
         py = subprocess.run(["bash", "-c", "command -v python3"], env=self.env, capture_output=True, text=True).stdout.strip()
         self.assertEqual(exec_start.strip(), f'ExecStart="{py}" %h/.local/bin/claude-desktop-presence')
 
-    def test_hook_and_service_share_the_marks_dir(self):
-        # п1-15: XDG_CACHE_HOME сессии (как у хука) записан в юнит
-        self.run_sh("--no-hook", XDG_CACHE_HOME=self.home + "/cache")
+    def unit(self):
         with open(self.home + "/.config/systemd/user/claude-desktop-presence.service") as fh:
-            unit = fh.read()
-        self.assertIn(f'[Service]\nEnvironment="XDG_CACHE_HOME={self.home}/cache"\n', unit)
+            return fh.read()
+
+    def test_unit_carries_language_not_cache_dir(self):
+        # п5-02: каталог меток хуку называет сама служба, в юните его нет; язык сообщений службы — есть
+        self.run_sh("--no-hook", XDG_CACHE_HOME=self.home + "/cache")
+        self.assertIn("[Service]\nEnvironment=CDP_LANG=ru\n", self.unit())
+        self.assertNotIn("XDG_CACHE_HOME", self.unit())
+        self.run_sh("--no-hook", "--lang", "en")
+        self.assertIn("Environment=CDP_LANG=en", self.unit())
+
+    def test_quoted_values_from_show_environment(self):
+        # п5-01: значение с пробелом systemctl печатает как $'…'
+        xdg = self.home + "/my conf"
+        rc, out = self.run_sh("--no-hook", FAKE_ENV=f"XDG_CONFIG_HOME=$'{xdg}'\\n")
+        self.assertEqual(rc, 0, out)
+        self.assertTrue(os.path.exists(xdg + "/claude-desktop-presence/config.toml"))
+        self.assertFalse(any(n.startswith("$") for n in os.listdir(ROOT)))
+
+    def test_venv_python_is_replaced_by_its_base(self):
+        # п5-04: юнит не держится за venv, который могут удалить
+        venv = self.home + "/venv"
+        subprocess.run(["python3", "-m", "venv", "--without-pip", venv], check=True, env=self.env)
+        rc, out = self.run_sh("--no-hook", PATH=venv + "/bin:" + self.env["PATH"])
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(venv, self.unit())
+
+    def test_odd_characters_in_python_path(self):
+        # п5-05: & | % и пробел в пути — юнит цел, % удвоен
+        odd = self.home + "/R&D | 100%"
+        os.makedirs(odd)
+        real = subprocess.run(["python3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True,
+                              env=self.env).stdout.strip()
+        os.symlink(real, odd + "/python3")
+        rc, out = self.run_sh("--no-hook", PATH=odd + ":" + self.env["PATH"])
+        self.assertEqual(rc, 0, out)
+        exec_start = next(l for l in self.unit().splitlines() if l.startswith("ExecStart="))
+        self.assertEqual(exec_start, f'ExecStart="{odd.replace("%", "%%")}/python3" %h/.local/bin/claude-desktop-presence')
+
+    def test_uninstall_keeps_foreign_entries_without_hooks(self):
+        # п5-09
+        self.write_settings({"hooks": {"PreCompact": [{"matcher": "x"}, {"matcher": "y", "hooks": []},
+                                                      {"hooks": [{"type": "command", "command": self.cmd}]}]}})
+        rc, out = self.run_sh("--uninstall")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.read_settings(), {"hooks": {"PreCompact": [{"matcher": "x"}, {"matcher": "y", "hooks": []}]}})
+
+    def test_old_install_permissions_are_tightened(self):
+        # п1-17: каталог настроек и hide.txt от прошлых версий
+        os.makedirs(self.conf)
+        with open(self.conf + "/hide.txt", "w") as fh:
+            fh.write("секрет\n")
+        os.chmod(self.conf, 0o755)
+        os.chmod(self.conf + "/hide.txt", 0o644)
+        self.run_sh("--no-hook")
+        self.assertEqual(os.stat(self.conf).st_mode & 0o777, 0o700)
+        self.assertEqual(os.stat(self.conf + "/hide.txt").st_mode & 0o777, 0o600)
+        with open(self.conf + "/hide.txt") as fh:
+            self.assertEqual(fh.read(), "секрет\n")       # п4-02: свой hide.txt не перезаписан
+
+    def test_settings_edge_cases(self):
+        # п4-02: битый JSON не тронут, права файла сохраняются, ссылка на settings.json не рвётся
+        self.write_settings(None, raw="{не json")
+        rc, out = self.run_sh()
+        with open(self.settings) as fh:
+            self.assertEqual(fh.read(), "{не json")
+        self.assertIn("не читается", out)
+        self.write_settings({"model": "x"})
+        os.chmod(self.settings, 0o640)
+        self.run_sh()
+        self.assertEqual(os.stat(self.settings).st_mode & 0o777, 0o640)
+        real = self.home + "/dotfiles-settings.json"
+        os.replace(self.settings, real)
+        os.symlink(real, self.settings)
+        self.run_sh("--uninstall")
+        self.assertTrue(os.path.islink(self.settings))
+        self.assertEqual(self.commands(self.read_settings(real)), [])
 
     def test_config_checked_by_the_program_itself(self):
         # п2-02: проверка настроек та же, что у службы
