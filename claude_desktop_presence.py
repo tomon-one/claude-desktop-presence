@@ -854,6 +854,7 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.stdout.reconfigure(errors="replace")    # локаль не UTF-8: вопросики вместо падения
     if "--hook" in sys.argv[1:]:
         hook()
     elif sys.argv[1:2] == ["--update-words"] and len(sys.argv) == 4:

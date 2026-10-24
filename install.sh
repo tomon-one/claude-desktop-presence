@@ -27,52 +27,73 @@ bin=$HOME/.local/bin/claude-desktop-presence
 conf=${XDG_CONFIG_HOME:-$HOME/.config}/claude-desktop-presence
 unit=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/claude-desktop-presence.service
 
-# добавить (add) или убрать (remove) хук в ~/.claude/settings.json, не трогая остальное
+# добавить (add) или убрать (remove) хук в settings.json Claude Code, не трогая остальное
 settings_hook() {
     python3 - "$1" "$bin" <<'EOF'
 import json, os, shlex, shutil, sys
+sys.stdout.reconfigure(errors="replace")
+sys.stderr.reconfigure(errors="replace")
 action, cmd = sys.argv[1], shlex.quote(sys.argv[2]) + " --hook"
-path = os.path.realpath(os.path.expanduser("~/.claude/settings.json"))
+home = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+path = os.path.realpath(os.path.join(home, "settings.json"))
+manual = f"добавь вручную в PreCompact: {cmd}" if action == "add" else f"убери вручную из PreCompact: {cmd}"
 try:
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         s = json.load(fh)
 except FileNotFoundError:
+    if action == "remove":
+        sys.exit(0)
     s = {}
-except (OSError, ValueError) as e:
-    sys.exit(f"{path} не читается ({e}), хук не тронут: поправь файл и запусти снова")
+except (OSError, ValueError, RecursionError) as e:
+    sys.exit(f"{path} не читается ({type(e).__name__}), хук не тронут: поправь файл и запусти снова")
 hooks = s.get("hooks", {}) if isinstance(s, dict) else None
 entries = hooks.get("PreCompact", []) if isinstance(hooks, dict) else None
-if not isinstance(entries, list) or not all(isinstance(e, dict) and isinstance(e.get("hooks", []), list) for e in entries):
-    sys.exit(f"{path}: неожиданная структура hooks, хук не тронут, добавь вручную: {cmd}")
+if not isinstance(entries, list) or not all(isinstance(e, dict) and isinstance(e.get("hooks", []), list)
+                                            and all(isinstance(h, dict) for h in e.get("hooks", [])) for e in entries):
+    sys.exit(f"{path}: неожиданная структура hooks, файл не тронут, {manual}")
 s["hooks"] = hooks
-ours = [e for e in entries if any(h.get("command") == cmd for h in e.get("hooks", []))]
+ours = any(h.get("command") == cmd for e in entries for h in e.get("hooks", []))
 if action == "add" and ours or action == "remove" and not ours:
     sys.exit(0)
-hooks["PreCompact"] = entries + [{"hooks": [{"type": "command", "command": cmd}]}] if action == "add" \
-    else [e for e in entries if e not in ours]
-if not hooks["PreCompact"]:
+if action == "add":
+    entries = entries + [{"hooks": [{"type": "command", "command": cmd}]}]
+else:   # только наш хук: чужие хуки и matcher той же записи остаются
+    entries = [e if not any(h.get("command") == cmd for h in e.get("hooks", []))
+               else {**e, "hooks": [h for h in e["hooks"] if h.get("command") != cmd]} for e in entries]
+    entries = [e for e in entries if e.get("hooks")]
+hooks["PreCompact"] = entries
+if not entries:
     del hooks["PreCompact"]
 if not hooks:
     del s["hooks"]
-os.makedirs(os.path.dirname(path), exist_ok=True)
-tmp = path + ".tmp"
-with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as fh:
-    json.dump(s, fh, indent=2, ensure_ascii=False)
-    fh.write("\n")
-if os.path.exists(path):
-    shutil.copy2(path, path + ".bak")
-    shutil.copymode(path, tmp)
-os.replace(tmp, path)
+tmp, bak = path + ".tmp", path + ".bak"
+try:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w", encoding="utf-8") as fh:
+        json.dump(s, fh, indent=2, ensure_ascii=False, allow_nan=False)     # Infinity — не JSON, Claude Code его не прочтёт
+        fh.write("\n")
+    if os.path.exists(path):
+        shutil.copyfile(path, bak + ".tmp")     # прежний .bak бывает только для чтения — заменить, а не писать в него
+        os.replace(bak + ".tmp", bak)
+        shutil.copymode(path, tmp)
+    os.replace(tmp, path)
+except (OSError, ValueError, RecursionError) as e:
+    for f in (tmp, bak + ".tmp"):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    sys.exit(f"{path} не записан ({type(e).__name__}), файл не тронут, {manual}")
 print("хук PreCompact", "добавлен в" if action == "add" else "убран из", path)
 EOF
 }
 
 if (( uninstall )); then
     systemctl --user disable --now claude-desktop-presence 2>/dev/null || true
-    settings_hook remove || echo "хук не убран, убери вручную из ~/.claude/settings.json"
+    settings_hook remove || true
     rm -f "$bin" "$unit"
     rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/claude-desktop-presence"
-    systemctl --user daemon-reload
+    systemctl --user daemon-reload 2>/dev/null || true
     echo "удалено; настройки остались в $conf"
     exit 0
 fi
