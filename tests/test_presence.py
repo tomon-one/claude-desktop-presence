@@ -425,6 +425,46 @@ class Words(unittest.TestCase):
         self.assertTrue(long.endswith("…"))
 
 
+class UpdateWords(unittest.TestCase):
+    SHIPPED = "# шапка\n[думает]\nДумает\nНовая @ночь\n\n[готово]\nГотово\n\n[фон]\nАгенты\n"
+
+    def test_new_words_go_to_their_sections_and_duplicates_go_away(self):
+        mine = "# моё\n[thinking]\nДумает\nСвоя\nсвоя\n\n[готово]\nГотово\n"
+        text, added, dropped, keys = p.merge_words(self.SHIPPED, mine, set())
+        self.assertEqual((added, dropped), (2, 1))
+        self.assertEqual(text, "# моё\n[thinking]\nДумает\nСвоя\nНовая @ночь\n\n[готово]\nГотово\n\n[фон]\nАгенты\n")
+
+    def test_changed_condition_is_not_a_new_word(self):
+        mine = "[думает]\nДумает\nНовая @ночь\nДумает @шанс 10\nдумает @шанс 25\n[готово]\nГотово\n[фон]\nАгенты\n"
+        self.assertEqual(p.merge_words(self.SHIPPED, mine, set())[1:3], (0, 1))
+
+    def test_same_word_with_other_trigger_is_another_word(self):
+        mine = "[событие]\nReady @запуск\nReady @переключение 15\n"
+        self.assertEqual(p.merge_words(mine, mine, set())[1:3], (0, 0))
+
+    def test_word_removed_by_hand_does_not_come_back(self):
+        _, _, _, keys = p.merge_words(self.SHIPPED, self.SHIPPED, set())
+        mine = "[думает]\nДумает\n[готово]\nГотово\n[фон]\nАгенты\n"
+        text, added, _, _ = p.merge_words(self.SHIPPED + "[ждёт]\nЖдёт\n", mine, keys)
+        self.assertEqual(added, 1)
+        self.assertNotIn("Новая", text)
+        self.assertTrue(text.endswith("[ждёт]\nЖдёт\n"))
+
+    def test_update_words_keeps_a_copy_and_remembers(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = os.path.join(d, "ru.txt"), os.path.join(d, "words.txt")
+            open(src, "w").write(self.SHIPPED)
+            open(dst, "w").write("[думает]\nДумает\nДумает\n")
+            with mock.patch("sys.stdout"):
+                p.update_words(src, dst)
+                self.assertTrue(os.path.exists(dst + ".bak"))
+                os.remove(dst + ".bak")
+                p.update_words(src, dst)        # второй раз — ничего нового, копия не нужна
+            self.assertFalse(os.path.exists(dst + ".bak"))
+            self.assertEqual(open(dst).read().count("Думает"), 1)
+            self.assertIn("thinking\tновая\tnight", open(dst + ".seen").read())
+
+
 class Config(unittest.TestCase):
     def load(self, text, raw=None):
         with tempfile.TemporaryDirectory() as d:

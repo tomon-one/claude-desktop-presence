@@ -105,11 +105,11 @@ nochat = "Чат не выбран"
 background = "Работают фоновые агенты"
 EOF
 fi
+# свой words.txt не перезаписывать: новые фразы — в их разделы, повторы — вон; удалённые самим не возвращаются (words.txt.seen)
 if [[ ! -e $conf/words.txt ]]; then
     cp "words/$lang.txt" "$conf/words.txt"
-elif ! cmp -s "words/$lang.txt" "$conf/words.txt"; then
-    echo "words.txt уже есть и отличается от words/$lang.txt — не трогаю (новые фразы: diff words/$lang.txt $conf/words.txt)"
 fi
+python3 claude_desktop_presence.py --update-words "words/$lang.txt" "$conf/words.txt"
 [[ -e $conf/hide.txt ]] || cp "words/hide.$lang.txt" "$conf/hide.txt"
 cp claude-desktop-presence.service "$unit"
 if (( hook )); then settings_hook add || echo "продолжаю без хука: сжатие в карточке видно не будет"; fi

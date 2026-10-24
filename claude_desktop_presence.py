@@ -7,7 +7,7 @@
 """
 __version__ = "0.1.2"
 
-import datetime, functools, glob, json, os, random, re, select, socket, struct, sys, time, uuid
+import datetime, functools, glob, json, os, random, re, select, shutil, socket, struct, sys, time, uuid
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
@@ -447,6 +447,70 @@ def parse_words(rows):
 COND = re.compile(r"^(.*?)\s*@\s*(\S+)(?:\s+([0-9]+))?\s*$")
 
 
+def word_key(section, line):
+    """Ключ фразы для сверки списков: раздел, слово и условие без числа, без регистра.
+    «X @запуск» и «X @переключение 15» — две фразы; «X @шанс 25» и «X @шанс 10» — одна."""
+    (word, cond, _), = parse_words([line])[None]
+    return f"{section}\t{word.lower()}" + (f"\t{cond}" if cond else "")
+
+
+def merge_words(shipped, mine, seen):
+    """Новые фразы из shipped — в разделы mine, повторы в mine — вон. Строки, комментарии и порядок mine остаются.
+    seen — ключи, которые уже предлагались: их нет в mine — значит, удалены нарочно, обратно не добавлять.
+    Возвращает (текст, добавлено, убрано повторов, ключи shipped)."""
+    out, have, ends, section, dropped = [], set(), {}, None, 0
+    for raw in mine.splitlines():
+        l = raw.strip()
+        if l.startswith("[") and l.endswith("]"):
+            name = l[1:-1].strip().lower()
+            section = SECTIONS.get(name, name)
+        elif l and not l.startswith("#"):
+            k = word_key(section, l)
+            if k in have:
+                dropped += 1
+                continue
+            have.add(k)
+        out.append(raw)
+        if l and section is not None:
+            ends[section] = len(out)      # новые фразы раздела — после его последней строки
+    new, heads, section, keys = {}, {}, None, set()
+    for l in (r.strip() for r in shipped.splitlines()):
+        if l.startswith("[") and l.endswith("]"):
+            name = l[1:-1].strip().lower()
+            section = SECTIONS.get(name, name)
+            heads.setdefault(section, l)
+        elif l and not l.startswith("#") and section is not None:
+            k = word_key(section, l)
+            keys.add(k)
+            if k not in have and k not in seen:
+                have.add(k)
+                new.setdefault(section, []).append(l)
+    for sec in sorted((s for s in new if s in ends), key=lambda s: -ends[s]):
+        out[ends[sec]:ends[sec]] = new[sec]
+    for sec in (s for s in new if s not in ends):
+        out += ["", heads[sec], *new[sec]]
+    return "\n".join(out) + "\n", sum(map(len, new.values())), dropped, keys
+
+
+def update_words(shipped_path, mine_path):
+    """./install.sh: дописать в свой words.txt новые фразы из words/<язык>.txt. Копия — words.txt.bak."""
+    seen_path = mine_path + ".seen"
+    try:
+        seen = set(read(seen_path).splitlines())
+    except FileNotFoundError:
+        seen = set()
+    text, added, dropped, keys = merge_words(read(shipped_path), read(mine_path), seen)
+    if added or dropped:
+        shutil.copy2(mine_path, mine_path + ".bak")
+        with open(mine_path + ".tmp", "w", encoding="utf-8") as fh:
+            fh.write(text)
+        os.replace(mine_path + ".tmp", mine_path)
+    with open(seen_path + ".tmp", "w", encoding="utf-8") as fh:
+        fh.write("\n".join(sorted(seen | keys)) + "\n")
+    os.replace(seen_path + ".tmp", seen_path)
+    print(f"words.txt: новых фраз {added}, повторов убрано {dropped}" + (f" (копия: {mine_path}.bak)" if added or dropped else ""))
+
+
 def in_hours(hour, span):
     a, b = span
     return a <= hour < b if a < b else hour >= a or hour < b
@@ -759,4 +823,9 @@ def main():
 
 
 if __name__ == "__main__":
-    hook() if "--hook" in sys.argv[1:] else main()
+    if "--hook" in sys.argv[1:]:
+        hook()
+    elif sys.argv[1:2] == ["--update-words"] and len(sys.argv) == 4:
+        update_words(sys.argv[2], sys.argv[3])
+    else:
+        main()

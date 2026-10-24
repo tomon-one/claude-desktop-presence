@@ -271,7 +271,7 @@ git pull
 ./install.sh --lang en
 ```
 
-The installer never overwrites your `words.txt`; see new phrases with `diff words/en.txt ~/.config/claude-desktop-presence/words.txt`; if you never edited yours, just take the new one: `cp words/en.txt ~/.config/claude-desktop-presence/words.txt`. To uninstall: `./install.sh --uninstall` (service, script and hook; settings stay).
+The installer never overwrites your `words.txt`: it adds new phrases to their sections, removes duplicates and never brings back a phrase you deleted yourself (it remembers them in `words.txt.seen`). The previous file stays in `words.txt.bak`. To uninstall: `./install.sh --uninstall` (service, script and hook; settings stay).
 
 ---
 
