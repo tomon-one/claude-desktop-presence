@@ -6,6 +6,7 @@
 #   ./install.sh --no-hook    без хука (сжатие в карточке видно не будет)
 #   ./install.sh --uninstall  убрать службу, скрипт и хук; настройки остаются
 set -euo pipefail
+umask 077     # hide.txt, config.toml и words.txt — только свои: в hide.txt подстроки скрытых чатов
 cd "$(dirname "$0")"
 
 lang=ru link=0 hook=1 uninstall=0

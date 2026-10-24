@@ -170,6 +170,13 @@ class Status(Sandbox):
         self.assertTrue(os.path.exists(p.compact_marker("s1")))
         self.assertTrue(os.path.exists(p.compacted_marker("s1")))
 
+    def test_hook_marks_are_private(self):
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1"})
+        self.assertEqual(os.stat(p.STATE_DIR).st_mode & 0o777, 0o700)            # п1-17
+        self.assertEqual(os.stat(p.compact_marker("s1")).st_mode & 0o777, 0o600)
+
     def test_hook_ignores_garbage(self):
         for payload in ("not json", "[1]", json.dumps({"hook_event_name": "PreCompact", "session_id": "../x"}),
                         json.dumps({"hook_event_name": "PreCompact", "session_id": None})):
@@ -276,6 +283,13 @@ class Card(Sandbox):
             activity, kind = p.Presence(conf).build(T0 + 100)
         self.assertEqual((kind, activity["state"], activity["assets"]["small_image"]),
                          ("background", "Размножается, как агент Смит…", "background"))
+
+    def test_hidden_chat_title_never_reaches_card(self):
+        with open(self.dir.name + "/hide.txt", "w") as fh:
+            fh.write("# комментарий\nчат\n")
+        activity, _ = self.build({}, title_private="Приватная сессия")          # п4-03: hide.txt → карточка
+        self.assertEqual(activity["details"], "Приватная сессия")
+        self.assertNotIn("Чат", json.dumps(activity, ensure_ascii=False))
 
     def test_icon_label_from_config(self):
         activity, _ = self.build({}, state_icons=True, labels={"thinking": "Думает"})
@@ -398,6 +412,34 @@ class Words(unittest.TestCase):
             self.assertTrue(p.hidden("Мой Секрет", path))                        # BOM не мешает
             self.assertFalse(p.hidden("Чат", path))
 
+    def test_hide_folds_case_and_invisible_chars(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = d + "/hide.txt"
+            with open(path, "w") as fh:
+                fh.write("Straße\nСекрет\u200b\n# c\n\ufeffЛичное\n")
+            self.assertTrue(p.hidden("STRASSE 12 — переезд", path))             # п1-02: casefold
+            self.assertTrue(p.hidden("Секрет: план", path))                      # п1-12: U+200B
+            self.assertTrue(p.hidden("личное", path))                            # п1-12: BOM не в начале
+            self.assertFalse(p.hidden("Чат", path))
+
+    def test_hide_dangling_link_or_missing_disk_hides_everything(self):
+        with tempfile.TemporaryDirectory() as d:
+            os.symlink(d + "/нет/hide.txt", d + "/hide.txt")
+            self.assertTrue(p.hidden("Чат", d + "/hide.txt"))                    # п1-10: ссылка в никуда
+            self.assertTrue(p.hidden("Чат", d + "/диск/hide.txt"))               # п1-10: каталога нет
+            self.assertFalse(p.hidden("Чат", d + "/hide2.txt"))                  # файла нет — ничего не скрыто
+
+    def test_lone_surrogate_does_not_break_card_or_leak_to_log(self):
+        title = "Диагноз мамы \ud83d"
+        self.assertEqual(p.clip(title), "Диагноз мамы \ufffd")                  # п1-01
+        try:
+            title.encode("utf-16-le")
+        except UnicodeEncodeError as e:
+            self.assertNotIn("Диагноз", p.failure(e))
+        self.assertNotIn("Диагноз", p.failure(ValueError(title)))
+        self.assertIn("Permission denied", p.failure(PermissionError(13, "Permission denied", "/x/" + title)))
+        self.assertNotIn("Диагноз", p.failure(PermissionError(13, "Permission denied", "/x/" + title)))
+
     def test_longer_takes_largest_threshold(self):
         w = p.parse_words(["[waiting]", "plain", "a @longer 30", "b @longer 60"])
         self.assertEqual(p.candidates(w, "waiting", T0, False, set(), T0 + 61 * 60)[1], ["b"])
@@ -481,6 +523,11 @@ class UpdateWords(unittest.TestCase):
                 p.update_words(src, dst)        # второй раз — ничего нового, копия не нужна
             self.assertFalse(os.path.exists(dst + ".bak"))
             self.assertEqual(open(dst).read().count("Думает"), 1)
+            os.chmod(dst, 0o600)
+            open(src, "a").write("Ещё\n")
+            with mock.patch("sys.stdout"):
+                p.update_words(src, dst)
+            self.assertEqual(os.stat(dst).st_mode & 0o777, 0o600)                   # п1-17: права не теряются
             self.assertIn("thinking\tновая\tnight", open(dst + ".seen").read())
 
 

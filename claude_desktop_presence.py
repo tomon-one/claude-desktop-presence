@@ -7,7 +7,7 @@
 """
 __version__ = "0.1.2"
 
-import datetime, functools, glob, json, os, random, re, select, shutil, socket, struct, sys, time, uuid
+import datetime, functools, glob, json, os, random, re, select, shutil, socket, struct, sys, time, unicodedata, uuid
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
@@ -409,16 +409,22 @@ def status(cli_id, now, busy=False):
 
 # ---- слова
 
+def fold(s):
+    """Для сравнения: без регистра (ß = ss) и без невидимых символов (U+200B, BOM посреди файла)."""
+    return "".join(c for c in s if unicodedata.category(c) != "Cf").casefold().strip()
+
+
 def hidden(title, path):
-    """Скрыть ли чат. hide.txt есть, но не читается (кодировка, права) — скрывать всё, а не ничего."""
+    """Скрыть ли чат. hide.txt есть, но не читается (кодировка, права, ссылка в никуда,
+    несмонтированный диск) — скрывать всё, а не ничего. Ничего не скрыто, только если файла нет на месте."""
     try:
         rows = read(path).splitlines()
     except FileNotFoundError:
-        return False
+        return os.path.islink(path) or not os.path.isdir(os.path.dirname(path))
     except (OSError, ValueError):
         return True
-    words = [l.strip().lower() for l in rows if l.strip() and not l.strip().startswith("#")]
-    return any(w in title.lower() for w in words)
+    words = [w for w in map(fold, rows) if w and not w.startswith("#")]
+    return any(w in fold(title) for w in words)
 
 
 def lines(path):
@@ -509,6 +515,7 @@ def update_words(shipped_path, mine_path):
         shutil.copy2(mine_path, mine_path + ".bak")
         with open(mine_path + ".tmp", "w", encoding="utf-8") as fh:
             fh.write(text)
+        shutil.copymode(mine_path, mine_path + ".tmp")
         os.replace(mine_path + ".tmp", mine_path)
     with open(seen_path + ".tmp", "w", encoding="utf-8") as fh:
         fh.write("\n".join(sorted(seen | keys)) + "\n")
@@ -585,7 +592,8 @@ def clip(s):
     s = (s or "").strip()
     if not s:
         return None
-    raw = s.encode("utf-16-le")
+    raw = s.encode("utf-16-le", "surrogatepass")     # одиночный суррогат (обрезанный эмодзи) — в U+FFFD
+    s = raw.decode("utf-16-le", "replace")
     if len(raw) > 256:
         s = raw[:254].decode("utf-16-le", "ignore") + "…"
     return s if len(s) >= 2 else s + "⠀"
@@ -761,6 +769,7 @@ def hook():
         data = json.load(sys.stdin)
         sid = data.get("session_id")
         if data.get("hook_event_name") == "PreCompact" and isinstance(sid, str) and re.fullmatch(r"[\w-]{1,100}", sid):
+            os.umask(0o077)     # метки с id сессий — только свои
             os.makedirs(STATE_DIR, exist_ok=True)
             open(compact_marker(sid), "w").close()
             open(compacted_marker(sid), "w").close()
@@ -811,6 +820,17 @@ class Link:
         return note + (f"→ {activity['state']}" if activity else "→ пусто")
 
 
+def failure(e):
+    """Ошибка для лога без её текста: в тексте бывает название чата. Тип, файл и строка кода."""
+    tb = e.__traceback__
+    while tb and tb.tb_next:
+        tb = tb.tb_next
+    where = f" (строка {tb.tb_lineno})" if tb else ""
+    if isinstance(e, OSError) and e.strerror:
+        return f"{type(e).__name__}: {e.strerror}{where}"
+    return type(e).__name__ + where
+
+
 def main():
     conf = config()
     presence, link, last, fails = Presence(conf), Link(str(conf["client_id"])), None, 0
@@ -824,7 +844,7 @@ def main():
             sys.exit(EX_CONFIG)
         except Exception as e:     # кривой файл Desktop или журнала — пропустить опрос, но не падать
             fails += 1
-            msg = f"сбой опроса: {e!r}"
+            msg = f"сбой опроса: {failure(e)}"
             if fails == FAILS_CLEAR:
                 link.update(None, time.time())      # не держать в Discord застывшую карточку
         if msg and msg != last:    # одинаковые строки подряд не повторять
