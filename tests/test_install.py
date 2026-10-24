@@ -188,6 +188,51 @@ class Install(unittest.TestCase):
         self.run_sh("--uninstall")
         self.assertFalse(os.path.exists(self.home + "/run/claude-desktop-presence.dir"))
 
+    def test_links_to_own_files_are_left_as_they_are(self):
+        # п7-03: ссылки не трогаются вовсе — и в свой файл, и каталог-ссылка
+        real = self.home + "/dotfiles"
+        os.makedirs(real)
+        with open(real + "/hide.txt", "w") as fh:
+            fh.write("секрет\n")
+        os.chmod(real, 0o755)
+        os.chmod(real + "/hide.txt", 0o644)
+        os.makedirs(os.path.dirname(self.conf))
+        os.symlink(real, self.conf)
+        rc, out = self.run_sh("--no-hook")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(os.stat(real).st_mode & 0o777, 0o755)
+        os.remove(self.conf)
+        os.makedirs(self.conf)
+        os.chmod(real + "/hide.txt", 0o644)
+        os.symlink(real + "/hide.txt", self.conf + "/hide.txt")
+        self.run_sh("--no-hook")
+        self.assertEqual(os.stat(real + "/hide.txt").st_mode & 0o777, 0o644)
+
+    def shim(self, body):
+        d = self.home + "/shims"
+        os.makedirs(d, exist_ok=True)
+        with open(d + "/python3", "w") as fh:
+            fh.write("#!/bin/sh\n" + body)
+        os.chmod(d + "/python3", 0o755)
+        return d
+
+    def test_shim_path_kept_when_it_works_from_home(self):
+        # п6-02: шим вне venv остаётся шимом (следует за версией)
+        real = subprocess.run(["python3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True,
+                              env=self.env).stdout.strip()
+        d = self.shim(f'exec "{real}" "$@"\n')
+        self.run_sh("--no-hook", PATH=d + ":" + self.env["PATH"])
+        self.assertIn(f'ExecStart="{d}/python3"', self.unit())
+
+    def test_shim_that_needs_shell_env_is_resolved(self):
+        # п7-01: шим даёт 3.11+ только с PYENV_VERSION — в юнит идёт проверенный python, не шим
+        real = subprocess.run(["python3", "-c", "import sys; print(sys.executable)"], capture_output=True, text=True,
+                              env=self.env).stdout.strip()
+        d = self.shim(f'[ -n "$PYENV_VERSION" ] || exit 1\nexec "{real}" "$@"\n')
+        rc, out = self.run_sh("--no-hook", PATH=d + ":" + self.env["PATH"], PYENV_VERSION="x")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn(d, self.unit())
+
     def test_links_to_foreign_files_are_not_chmodded(self):
         # п6-01: hide.txt — ссылка в чужой файл (Nix, дотфайлы): установка идёт дальше, файл не трогается
         os.makedirs(self.conf)

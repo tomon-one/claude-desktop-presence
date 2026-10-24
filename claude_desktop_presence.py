@@ -497,11 +497,13 @@ def journal_status(cli_id, now, busy=False):
     tools = {str(b.get("name")) for b in content if isinstance(b, dict) and b.get("type") == "tool_use"} \
         if last["type"] == "assistant" and isinstance(content, list) else set()
     if tools & ASK_TOOLS:
+        turn_start(path, entries, now)      # ход мог смениться за один опрос: запомнить запрос нового, пока он в хвосте
         return "choice", ts(last)
     if age(path, changed, now) > STALE and not busy:
         _turns.pop(path, None)
         return "waiting", changed
     if tools & CODE_TOOLS:
+        turn_start(path, entries, now)
         return "coding", ts(last)
     return "thinking", turn_start(path, entries, now) or changed
 

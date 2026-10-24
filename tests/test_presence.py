@@ -247,6 +247,15 @@ class Status(Sandbox):
             self.big_turn(T0 - 7200)       # запроса хода в хвосте и в TAIL_MAX нет
             self.assertEqual(p.status("s1", T0 + 20, busy=True), ("thinking", T0 - 1200))
 
+    def test_new_turn_seen_only_as_coding(self):
+        # п7-02: ход сменился за один опрос, служба видит сразу «правит файлы» — начало берётся у нового хода
+        path = self.dir.name + "/projects/p/s1.jsonl"
+        p._turns[path] = (T0 - 5000, T0 - 2)
+        self.journal(user("ход 1", T0 - 5000), assistant(TEXT, "end_turn", T0 - 3),
+                     user("ход 2", T0 - 1), assistant(tool("Edit"), "tool_use", T0))
+        self.assertEqual(p.status("s1", T0 + 1)[0], "coding")
+        self.assertEqual(p._turns[path][0], T0 - 1)
+
     def test_turn_start_not_found_is_not_reread(self):
         # п6-05: запроса нет и в TAIL_MAX — не перечитывать журнал на каждом опросе
         with mock.patch.multiple(p, TAIL=4096, TAIL_MAX=4096):

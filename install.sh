@@ -149,6 +149,11 @@ if sys.prefix != sys.base_prefix:
 print(p)
 EOF
 )
+# шим (pyenv и т. п.) выбирает версию по окружению и каталогу; служба стартует в ~ без PYENV_VERSION —
+# там он должен давать тоже 3.11+, иначе в юнит — тот python, что проверен здесь
+if ! (cd "$HOME" && env -u PYENV_VERSION "$py" -c 'import sys; sys.exit(sys.version_info < (3, 11))') 2>/dev/null; then
+    py=$("$py" -c 'import sys; print(sys.executable)')
+fi
 
 mkdir -p "$(dirname "$bin")" "$conf" "$(dirname "$unit")"
 # от прошлых версий бывает 755; ссылки (дотфайлы, Nix) не трогать — цель бывает чужой или только для чтения
