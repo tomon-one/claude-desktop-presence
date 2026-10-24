@@ -168,6 +168,7 @@ class Status(Sandbox):
     def test_hook_writes_marker(self):
         self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1", "trigger": "auto"})
         self.assertTrue(os.path.exists(p.compact_marker("s1")))
+        self.assertTrue(os.path.exists(p.compacted_marker("s1")))
 
     def test_hook_ignores_garbage(self):
         for payload in ("not json", "[1]", json.dumps({"hook_event_name": "PreCompact", "session_id": "../x"}),
@@ -236,6 +237,24 @@ class Card(Sandbox):
                                  active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
                                  registry=lambda: {}, status=lambda cli, now, busy=False: ("thinking", T0)):
             self.assertEqual(p.Presence(conf).build(T0 + 100)[0]["state"], "Ready or not?")
+
+    def test_session_age_counts_from_last_compact(self):
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write("[думает]\nTokens @сессия 8\n")
+        conf = dict(p.DEFAULTS, client_id="1")
+
+        def word():
+            with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: T0 - 3600,
+                                     active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1",
+                                                                 "createdAt": (T0 - 10 * 3600) * 1000},
+                                     registry=lambda: {}, status=lambda cli, now, busy=False: ("thinking", T0)):
+                return p.Presence(conf).build(T0 + 100)[0]["state"]
+
+        self.assertEqual(word(), "Tokens…")
+        os.makedirs(p.STATE_DIR, exist_ok=True)
+        open(p.compacted_marker("s1"), "w").close()      # хук PreCompact в T0
+        os.utime(p.compacted_marker("s1"), (T0, T0))
+        self.assertNotIn("Tokens", word())
 
     def test_no_journal_is_not_done_forever(self):
         conf = dict(p.DEFAULTS, client_id="1")

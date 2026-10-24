@@ -313,6 +313,11 @@ def compact_marker(cli_id):
     return os.path.join(STATE_DIR, "compact-" + cli_id)
 
 
+def compacted_marker(cli_id):
+    """Когда сессию сжимали в последний раз (mtime). В отличие от compact- не удаляется после сжатия: от неё @сессия."""
+    return os.path.join(STATE_DIR, "compacted-" + cli_id)
+
+
 def read_tail(path):
     total, size = os.path.getsize(path), TAIL
     while True:
@@ -640,7 +645,9 @@ class Presence:
             self.kind, self.kind_at, self.word, self.lucky = kind, now, None, roll_chance(words, kind)
         since = since or self.kind_at       # без журнала и без чата — с момента входа в состояние
         morning = self.morning and in_hours(clock.hour, MORNING)
-        created = num(s.get("createdAt")) / 1000 or None
+        # возраст сессии — от создания или от последнего /compact (метка хука), что позже
+        cli = s.get("cliSessionId")
+        created = max(num(s.get("createdAt")) / 1000, (mtime(compacted_marker(cli)) if isinstance(cli, str) else 0) or 0) or None
         exclusive, special, pool = candidates(words, kind, since, morning, self.lucky, now, created)
         if self.word not in (exclusive or special + pool) or now - self.word_at > WORD_EVERY:
             self.word, self.word_at = pick(self.word, exclusive, special, pool), now
@@ -756,8 +763,12 @@ def hook():
         if data.get("hook_event_name") == "PreCompact" and isinstance(sid, str) and re.fullmatch(r"[\w-]{1,100}", sid):
             os.makedirs(STATE_DIR, exist_ok=True)
             open(compact_marker(sid), "w").close()
+            open(compacted_marker(sid), "w").close()
             for old in glob.glob(compact_marker("*")):      # метки сессий, которые карточка так и не открыла
                 if time.time() - (mtime(old) or time.time()) > 86400:
+                    os.remove(old)
+            for old in glob.glob(compacted_marker("*")):    # старше недели: возраст и так больше любого порога
+                if time.time() - (mtime(old) or time.time()) > 7 * 86400:
                     os.remove(old)
     except Exception:
         pass

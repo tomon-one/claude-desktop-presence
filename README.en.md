@@ -98,7 +98,7 @@ Phrases live in `words.txt`, grouped by section, one per line. A condition goes 
 | `@longer 30` | the state has lasted over 30 minutes. Alternates with regular phrases; with several thresholds the largest wins |
 | `@morning` | the first wait of the morning, from 5 to 12. Alternates with regular phrases |
 | `@chance 25` | 25 % chance on entering the state. Alternates with regular phrases |
-| `@session 8` | the chat was created over 8 hours ago. Alternates with regular phrases |
+| `@session 8` | the chat was created or compacted (`/compact`) over 8 hours ago. Alternates with regular phrases |
 | `@launch` | `[event]` section only: the first minute after Claude Desktop starts |
 | `@switch 15` | `[event]` section only: 15 % chance on switching chats, for one minute |
 
