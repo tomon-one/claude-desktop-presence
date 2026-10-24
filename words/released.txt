@@ -1,0 +1,126 @@
+background	awakening androids
+background	claude, claude and more claude
+background	claude, claude и ещё claude
+background	clawd waves a flag
+background	clawd машет флагом
+background	daemons running
+background	multiplying like agent smith
+background	split up, hunting the ghost
+background	spread the team across sites
+background	запустил демонов
+background	пробуждает андроидов
+background	разделились, ищут призрака
+background	размножается, как агент смит
+background	раскидал тиммейтов по точкам
+choice	clawd looks left, then right
+choice	clawd смотрит то влево, то вправо
+choice	needs a clarification
+choice	red pill or blue pill?
+choice	красная или синяя таблетка?
+choice	нужно уточнить
+coding	clawd types on his laptop
+coding	clawd печатает на ноутбуке
+coding	combobulating
+coding	investigating like kovacs
+coding	push b non stop
+coding	ведёт расследование, как ковач
+compacting	clawd walks sideways
+compacting	clawd ходит боком
+compacting	compacting conversation
+compacting	compressed, not defeated
+compacting	eco round, saving for an awp
+compacting	erase/rewind
+compacting	new sleeve, stack intact
+compacting	новая оболочка, стек цел
+compacting	сжимается, но не сдаётся
+compacting	эко-раунд, копит на awp
+done	breathtaking	chance
+done	clawd dances
+done	clawd пляшет
+done	done
+done	you're absolutely right!
+done	готово
+error	529 overloaded
+error	black letter day
+error	clawd-детектив ищет баг
+error	detective clawd hunts the bug
+error	never recover
+error	wasted
+error	чёрный день
+event	clawd plays the guitar	launch
+event	clawd играет на гитаре	launch
+event	ready or not?	launch
+event	ready or not?	switch
+nochat	clawd kicks a ball
+nochat	clawd гоняет мяч
+nochat	in the lobby
+nochat	press any key
+nochat	roaming night city	night
+nochat	waiting for player 2
+nochat	welcome to claude code!
+nochat	бродит по найт-сити	night
+nochat	ждёт второго игрока
+nochat	сидит в лобби
+permission	asking for a drop
+permission	awaiting orders
+permission	clawd waves
+permission	clawd машет лапкой
+permission	do you believe?
+permission	do you want to proceed?
+permission	if there is a chance
+permission	ждёт приказа
+permission	просит дроп
+thinking	03:45: no sleep	03:45
+thinking	becoming human
+thinking	clauding
+thinking	clawd rides a cloud
+thinking	clawd едет на облаке
+thinking	cyberpsychosis creeping in	longer
+thinking	digging straight down
+thinking	generating
+thinking	great divide
+thinking	i figured out
+thinking	long gone before daylight	night
+thinking	looking for gas
+thinking	looking for the light
+thinking	overloaded	longer
+thinking	seems hard
+thinking	software instability ▲
+thinking	thinking
+thinking	thinking about the golden gate bridge
+thinking	tokens aren't infinite	session
+thinking	ultrathink	longer
+thinking	генерирует
+thinking	делит на части
+thinking	думает
+thinking	думает о мосте золотые ворота
+thinking	ищет бензин
+thinking	ищет свет во тьме
+thinking	киберпсихоз подкрадывается	longer
+thinking	копает прямо вниз
+thinking	нестабильность по ▲
+thinking	становится человеком
+thinking	токены не резиновые	session
+waiting	are you here? give us a sign
+waiting	cache went cold	longer
+waiting	clawd hits the gym
+waiting	clawd качается в зале
+waiting	hanging around
+waiting	hotel hendrix awaits guests
+waiting	never fade away
+waiting	night city	night
+waiting	rise & shine	morning
+waiting	stuck in mt. moon
+waiting	waiting 5:08 without pressing anything	05:08
+waiting	waiting for a reply
+waiting	waiting like vice city waits for gta vi	longer
+waiting	wake up, samurai	longer
+waiting	wants to go to the moon	night
+waiting	ждёт 5:08, ничего не нажимая	05:08
+waiting	ждёт ответа
+waiting	ждёт, как вайс-сити ждёт gta vi	longer
+waiting	застрял в маунт-мун
+waiting	кэш остыл	longer
+waiting	отель «хендрикс» ждёт гостей
+waiting	ты здесь? подай знак
+waiting	хочет на луну	night

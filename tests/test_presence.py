@@ -440,6 +440,42 @@ class Words(unittest.TestCase):
         self.assertIn("Permission denied", p.failure(PermissionError(13, "Permission denied", "/x/" + title)))
         self.assertNotIn("Диагноз", p.failure(PermissionError(13, "Permission denied", "/x/" + title)))
 
+    def test_longer_without_number(self):
+        # п3-10: «@дольше» без числа не роняет опрос
+        w = p.parse_words(["[ждёт]", "Ждёт", "Самурай @дольше", "Долго @дольше 30"])
+        self.assertEqual(p.candidates(w, "waiting", T0 - 10, False, set(), T0)[1], ["Самурай"])
+        self.assertEqual(p.candidates(w, "waiting", T0 - 3600, False, set(), T0)[1], ["Долго"])
+
+    def test_unreadable_words_file_is_logged_once(self):
+        # п2-15
+        p._warned = None
+        with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as fh:
+            fh.write("[ждёт]\nСамурай\n".encode("cp1251"))
+        self.addCleanup(os.unlink, fh.name)
+        with mock.patch("sys.stderr") as err:
+            self.assertEqual(p.lines(fh.name), [])
+            p.lines(fh.name)
+        out = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertEqual(out.count("не читается"), 1)
+
+    def test_night_and_morning_words(self):
+        # п4-09: @ночь только ночью (через полночь), @утро только с флагом утра
+        w = p.parse_words(["[ждёт]", "Ждёт", "Сова @ночь", "Кофе @утро"])
+        night = time.mktime((2026, 10, 2, 1, 0, 0, 0, 0, -1))
+        late = time.mktime((2026, 10, 2, 23, 30, 0, 0, 0, -1))
+        day = time.mktime((2026, 10, 2, 14, 0, 0, 0, 0, -1))
+        self.assertIn("Сова", p.candidates(w, "waiting", night, False, set(), night)[2])
+        self.assertIn("Сова", p.candidates(w, "waiting", late, False, set(), late)[2])
+        self.assertNotIn("Сова", p.candidates(w, "waiting", day, False, set(), day)[2])
+        self.assertEqual(p.candidates(w, "waiting", day, True, set(), day)[1], ["Кофе"])
+        self.assertEqual(p.candidates(w, "waiting", day, False, set(), day)[1], [])
+        self.assertTrue(p.in_hours(23, p.NIGHT) and p.in_hours(4, p.NIGHT) and not p.in_hours(5, p.NIGHT))
+        self.assertTrue(p.in_hours(5, p.MORNING) and not p.in_hours(12, p.MORNING))
+
+    def test_exclusive_wins_in_pick(self):
+        self.assertEqual(p.pick(None, ["late"], ["egg"], ["plain"]), "late")
+        self.assertEqual(p.pick("late", ["late"], ["egg"], ["plain"]), "late")
+
     def test_longer_takes_largest_threshold(self):
         w = p.parse_words(["[waiting]", "plain", "a @longer 30", "b @longer 60"])
         self.assertEqual(p.candidates(w, "waiting", T0, False, set(), T0 + 61 * 60)[1], ["b"])
@@ -496,8 +532,63 @@ class UpdateWords(unittest.TestCase):
         self.assertEqual(text, "# моё\n[thinking]\nДумает\nСвоя\nНовая @ночь\n\n[готово]\nГотово\n\n[фон]\nАгенты\n")
 
     def test_changed_condition_is_not_a_new_word(self):
-        mine = "[думает]\nДумает\nНовая @ночь\nДумает @шанс 10\nдумает @шанс 25\n[готово]\nГотово\n[фон]\nАгенты\n"
-        self.assertEqual(p.merge_words(self.SHIPPED, mine, set())[1:3], (0, 1))
+        mine = "[думает]\nДумает @шанс 10\n[готово]\nГотово\n[фон]\nАгенты\n"
+        shipped = "[думает]\nДумает @шанс 25\n[готово]\nГотово\n[фон]\nАгенты\n"
+        self.assertEqual(p.merge_words(shipped, mine, set())[1:3], (0, 0))      # поставка сменила число — не новая
+
+    def test_own_lines_differing_by_number_stay(self):
+        # п1-09: свои строки убираются только точным повтором
+        mine = "[ждёт]\nМоя @дольше 10\nМоя @дольше 60\nДругая @шанс 5\nДругая @шанс 80\nДругая @шанс 80\n"
+        text, added, dropped, _ = p.merge_words("", mine, set())
+        self.assertEqual(dropped, 1)
+        self.assertIn("Моя @дольше 60", text)
+
+    def test_new_words_in_two_sections(self):
+        # п4-08: вставка в несколько разделов не сдвигает друг друга
+        mine = "[думает]\nДумает\n\n[готово]\nГотово\n\n[фон]\nАгенты\n"
+        shipped = "[думает]\nДумает\nНовая\n[готово]\nГотово\nЕщё\n[фон]\nАгенты\nТретья\n"
+        text = p.merge_words(shipped, mine, set())[0]
+        self.assertEqual(text, "[думает]\nДумает\nНовая\n\n[готово]\nГотово\nЕщё\n\n[фон]\nАгенты\nТретья\n")
+
+    def test_update_follows_symlinks(self):
+        # п1-03: words.txt — ссылка в дотфайлы: обновляется файл по ссылке, ссылка цела
+        with tempfile.TemporaryDirectory() as d:
+            src, real, link = d + "/ru.txt", d + "/dotfiles-words.txt", d + "/words.txt"
+            with open(src, "w") as fh:
+                fh.write(self.SHIPPED)
+            with open(real, "w") as fh:
+                fh.write("[думает]\nДумает\n")
+            os.symlink(real, link)
+            with mock.patch("sys.stdout"):
+                p.update_words(src, link)
+            self.assertTrue(os.path.islink(link))
+            with open(real) as fh:
+                self.assertIn("Новая @ночь", fh.read())
+
+    def test_first_update_from_0_1_does_not_bring_back_removed_words(self):
+        # п3-08: .seen ещё нет — фразы прошлых релизов не возвращаются
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = d + "/ru.txt", d + "/words.txt"
+            with open(src, "w") as fh:
+                fh.write(self.SHIPPED)
+            with open(d + "/released.txt", "w") as fh:
+                fh.write("thinking\tновая\tnight\n")
+            with open(dst, "w") as fh:
+                fh.write("[думает]\nДумает\n[готово]\nГотово\n")
+            with mock.patch("sys.stdout"):
+                p.update_words(src, dst)
+            with open(dst) as fh:
+                text = fh.read()
+            self.assertNotIn("Новая", text)       # была в 0.1.x, удалена самим
+            self.assertIn("Агенты", text)         # действительно новая
+
+    def test_released_keys_cover_every_old_release(self):
+        with open(ROOT + "/words/released.txt") as fh:
+            released = set(fh.read().splitlines())
+        # фразы 0.1.x на обоих языках; новых фраз 0.2 (Edgerunners 2) там нет
+        self.assertIn("thinking\tseems hard", released)
+        self.assertIn("thinking\tгенерирует", released)
+        self.assertNotIn("thinking\tafterlife", "\n".join(released).casefold())
 
     def test_same_word_with_other_trigger_is_another_word(self):
         mine = "[событие]\nReady @запуск\nReady @переключение 15\n"

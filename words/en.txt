@@ -10,7 +10,7 @@
 #   @session 8     — the chat was created or compacted (/compact) over 8 hours ago; alternates with the regular ones
 #   @launch        — [event]: first minute after Claude Desktop starts
 #   @switch 15     — [event]: 15 % chance on switching chats, for a minute
-# The phrase changes every 30 s and on every state/chat change. "…" is added to thinking/coding/compacting.
+# The phrase changes every 30 s and on every state/chat change. "…" is added to thinking/coding/compacting/background.
 # The file is re-read on the fly.
 
 [thinking]

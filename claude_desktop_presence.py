@@ -427,11 +427,23 @@ def hidden(title, path):
     return any(w in fold(title) for w in words)
 
 
+_warned = None
+
+
 def lines(path):
+    """Строки файла слов без комментариев. Не читается — слова по умолчанию и строка в лог (одна на сбой)."""
+    global _warned
     try:
         rows = (l.strip() for l in read(path).splitlines())
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return []
+    except (OSError, ValueError) as e:
+        note = f"{os.path.basename(path)} не читается ({failure(e)}), слова по умолчанию"
+        if note != _warned:
+            print(note, file=sys.stderr, flush=True)
+            _warned = note
+        return []
+    _warned = None
     return [l for l in rows if l and not l.startswith("#")]
 
 
@@ -472,18 +484,18 @@ def merge_words(shipped, mine, seen):
     """Новые фразы из shipped — в разделы mine, повторы в mine — вон. Строки, комментарии и порядок mine остаются.
     seen — ключи, которые уже предлагались: их нет в mine — значит, удалены нарочно, обратно не добавлять.
     Возвращает (текст, добавлено, убрано повторов, ключи shipped)."""
-    out, have, ends, section, dropped = [], set(), {}, None, 0
+    out, have, exact, ends, section, dropped = [], set(), set(), {}, None, 0
     for raw in mine.splitlines():
         l = raw.strip()
         if l.startswith("[") and l.endswith("]"):
             name = l[1:-1].strip().lower()
             section = SECTIONS.get(name, name)
         elif l and not l.startswith("#"):
-            k = word_key(section, l)
-            if k in have:
+            if (section, l.casefold()) in exact:    # свои повторы — только строка в строку: «@шанс 5» и «@шанс 80» разные
                 dropped += 1
                 continue
-            have.add(k)
+            exact.add((section, l.casefold()))
+            have.add(word_key(section, l))
         out.append(raw)
         if l and section is not None:
             ends[section] = len(out)      # новые фразы раздела — после его последней строки
@@ -506,24 +518,33 @@ def merge_words(shipped, mine, seen):
     return "\n".join(out) + "\n", sum(map(len, new.values())), dropped, keys
 
 
+def write_over(path, text, mode_from=None):
+    """Заменить файл целиком; ссылку (дотфайлы) не рвать — писать туда, куда она ведёт."""
+    path = os.path.realpath(path)
+    with open(path + ".tmp", "w", encoding="utf-8") as fh:
+        fh.write(text)
+    if mode_from:
+        shutil.copymode(mode_from, path + ".tmp")
+    os.replace(path + ".tmp", path)
+
+
 def update_words(shipped_path, mine_path):
-    """./install.sh: дописать в свой words.txt новые фразы из words/<язык>.txt. Копия — words.txt.bak."""
+    """./install.sh: дописать в свой words.txt новые фразы из words/<язык>.txt. Копия — words.txt.bak.
+    .seen ещё нет (обновление с 0.1.x) — фразы прошлых релизов (words/released.txt) уже предлагались."""
     seen_path = mine_path + ".seen"
     try:
         seen = set(read(seen_path).splitlines())
     except FileNotFoundError:
-        seen = set()
-    text, added, dropped, keys = merge_words(read(shipped_path), read(mine_path), seen)
+        try:
+            seen = set(read(os.path.join(os.path.dirname(shipped_path), "released.txt")).splitlines())
+        except FileNotFoundError:
+            seen = set()
+    mine = read(mine_path)
+    text, added, dropped, keys = merge_words(read(shipped_path), mine, seen)
     if added or dropped:
-        shutil.copyfile(mine_path, mine_path + ".bak.tmp")     # прежний .bak бывает только для чтения
-        os.replace(mine_path + ".bak.tmp", mine_path + ".bak")
-        with open(mine_path + ".tmp", "w", encoding="utf-8") as fh:
-            fh.write(text)
-        shutil.copymode(mine_path, mine_path + ".tmp")
-        os.replace(mine_path + ".tmp", mine_path)
-    with open(seen_path + ".tmp", "w", encoding="utf-8") as fh:
-        fh.write("\n".join(sorted(seen | keys)) + "\n")
-    os.replace(seen_path + ".tmp", seen_path)
+        write_over(mine_path + ".bak", mine, mine_path)      # прежний .bak бывает только для чтения: заменить
+        write_over(mine_path, text, mine_path)
+    write_over(seen_path, "\n".join(sorted(seen | keys)) + "\n")
     if os.environ.get("CDP_LANG") == "en":
         print(f"words.txt: {added} new phrases, {dropped} repeats removed" + (f" (copy: {mine_path}.bak)" if added or dropped else ""))
     else:
@@ -555,11 +576,11 @@ def candidates(words, kind, since, morning, lucky, now, session=None):
         elif cond == "chance":
             if word in lucky:
                 special.append(word)
-        elif cond == "longer":
+        elif cond == "longer":      # «@дольше» без числа — с первой минуты
             if now - since > (n or 0) * 60:
-                if n > longest[0]:
-                    longest = (n, [])
-                if n == longest[0]:
+                if (n or 0) > longest[0]:
+                    longest = (n or 0, [])
+                if (n or 0) == longest[0]:
                     longest[1].append(word)
         elif ":" in cond:
             if clock.strftime("%H:%M") == cond:
