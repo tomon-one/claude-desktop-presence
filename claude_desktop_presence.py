@@ -6,7 +6,7 @@
 Состояние — по хвосту журнала сессии ~/.claude/projects/*/<id>.jsonl; реестр Claude Code
 ~/.claude/sessions — разрешение и «ход идёт»; журналы субагентов — фон; сжатие — по метке хука PreCompact (--hook).
 """
-__version__ = "0.1.2"
+__version__ = "0.2.0"
 
 import datetime, glob, json, os, random, re, select, shutil, socket, stat, struct, sys, time, unicodedata, uuid
 

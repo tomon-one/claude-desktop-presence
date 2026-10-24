@@ -12,7 +12,7 @@
 
 > ### Прочитайте до установки
 >
-> **Версия 0.1.2 «Sandevistan».** [Что нового](https://github.com/tomon-one/claude-desktop-presence/releases).
+> **Версия 0.2.0 «Afterlife».** [Что нового](https://github.com/tomon-one/claude-desktop-presence/releases).
 >
 > | | |
 > |---|---|
