@@ -176,6 +176,18 @@ class Status(Sandbox):
         self.assertEqual(p.status("s1", T0 + 40)[0], "waiting")
         self.assertFalse(os.path.exists(marker))
 
+    def test_time_from_the_future(self):
+        # п2-07: часы шагнули назад — ответ «из будущего» не держит «Готово», молчащий журнал стареет по монотонным
+        self.journal(user("x", T0 + 3000), assistant(TEXT, "end_turn", T0 + 3600))
+        self.assertEqual(p.status("s1", T0), ("done", None))
+        p._cache.clear()
+        path = self.journal(user("x", T0 + 3000))
+        os.utime(path, (T0 + 3600, T0 + 3600))
+        with mock.patch("time.monotonic", return_value=100.0):
+            self.assertEqual(p.status("s1", T0)[0], "thinking")
+        with mock.patch("time.monotonic", return_value=100.0 + p.STALE + 1):
+            self.assertEqual(p.status("s1", T0)[0], "waiting")
+
     def test_api_error_is_error(self):
         # п4-04: ошибка API последней записью — «Ошибка» с её времени
         self.journal(user("x"), assistant(TEXT, "stop_sequence", T0 + 3, isApiErrorMessage=True))
@@ -322,6 +334,22 @@ class Card(Sandbox):
                                  registry=lambda: {}, status=lambda cli, now, busy=False: ("thinking", T0)):
             self.assertEqual(p.Presence(conf).build(T0 + 100)[0]["state"], "Ready or not?")
 
+    def test_launch_event_follows_desktop_start(self):
+        # п4-15: событие «запуск» — минуту после старта Desktop, заново при перезапуске
+        with open(self.dir.name + "/words.txt", "w") as fh:
+            fh.write("[думает]\nДумает\n[событие]\nReady @запуск\n")
+        conf = dict(p.DEFAULTS, client_id="1")
+        start = [T0 - 3600]
+        with mock.patch.multiple(p, CONF_DIR=self.dir.name, desktop_start=lambda: start[0],
+                                 active_session=lambda now: {"sessionId": "local_a", "title": "Чат", "cliSessionId": "s1"},
+                                 registry=lambda: {}, status=lambda cli, now, busy=False: ("thinking", T0)):
+            card = p.Presence(conf)
+            self.assertEqual(card.build(T0)[0]["state"], "Думает…")         # Desktop давно открыт
+            start[0] = T0 + 10
+            self.assertEqual(card.build(T0 + 20)[0]["state"], "Ready")
+            self.assertEqual(card.build(T0 + 69)[0]["state"], "Ready")
+            self.assertEqual(card.build(T0 + 71)[0]["state"], "Думает…")    # минута от старта прошла
+
     def test_session_age_counts_from_last_compact(self):
         with open(self.dir.name + "/words.txt", "w") as fh:
             fh.write("[думает]\nTokens @сессия 8\n")
@@ -412,6 +440,64 @@ class Card(Sandbox):
         self.assertEqual(activity["assets"]["small_text"], "Thinking")
         self.assertEqual(activity["status_display_type"], 1)
         self.assertEqual(activity["buttons"], [{"label": "GitHub", "url": "https://github.com/x"}])
+
+
+class Proc(unittest.TestCase):
+    """Слой /proc на поддельном каталоге (п4-13)."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.proc = self.dir.name
+        self.btime(1000)
+        self.patch = mock.patch.object(p, "PROC", self.proc)
+        self.patch.start()
+        p._desktop = None
+        self.tck = os.sysconf("SC_CLK_TCK")
+
+    def tearDown(self):
+        self.patch.stop()
+        self.dir.cleanup()
+        p._desktop = None
+
+    def btime(self, t):
+        with open(self.proc + "/stat", "w") as fh:
+            fh.write(f"cpu 1 2 3\nbtime {t}\nprocesses 5\n")
+
+    def process(self, pid, comm, start):
+        d = f"{self.proc}/{pid}"
+        os.makedirs(d, exist_ok=True)
+        with open(d + "/comm", "w") as fh:
+            fh.write(comm + "\n")
+        with open(d + "/stat", "w") as fh:
+            fh.write(f"{pid} ({comm}) S " + " ".join(["0"] * 18) + f" {start} 0 0\n")
+
+    def test_oldest_desktop_process(self):
+        self.process(10, "claude-desktop", 50 * self.tck)
+        self.process(11, "claude-desktop", 20 * self.tck)       # самый старый — сам Desktop, остальные — его дети
+        self.process(12, "bash", 1)
+        self.assertEqual(p.desktop_start(), 1020)
+        self.assertEqual(p._desktop, ("11", 20 * self.tck))
+
+    def test_desktop_gone_and_restarted(self):
+        self.process(11, "claude-desktop", 20 * self.tck)
+        self.assertEqual(p.desktop_start(), 1020)
+        self.process(11, "bash", 20 * self.tck)                 # pid занят другим процессом
+        self.assertIsNone(p.desktop_start())
+        self.process(13, "claude-desktop", 90 * self.tck)
+        self.assertEqual(p.desktop_start(), 1090)
+
+    def test_boot_time_follows_clock_steps(self):
+        # п2-06: btime перечитывается
+        self.process(11, "claude-desktop", 20 * self.tck)
+        self.assertEqual(p.desktop_start(), 1020)
+        self.btime(400)
+        self.assertEqual(p.desktop_start(), 420)
+
+    def test_other_users_desktop_is_ignored(self):
+        # п2-08
+        self.process(11, "claude-desktop", 20 * self.tck)
+        with mock.patch("os.getuid", return_value=os.getuid() + 1):
+            self.assertIsNone(p.desktop_start())
 
 
 class Focus(Sandbox):

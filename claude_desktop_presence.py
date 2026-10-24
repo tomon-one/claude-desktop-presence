@@ -7,11 +7,12 @@
 """
 __version__ = "0.1.2"
 
-import datetime, functools, glob, json, os, random, re, select, shutil, socket, struct, sys, time, unicodedata, uuid
+import datetime, glob, json, os, random, re, select, shutil, socket, struct, sys, time, unicodedata, uuid
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
 STATE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache", "claude-desktop-presence")
+PROC = "/proc"
 DESKTOP = HOME + "/.config/Claude"
 SESSIONS = DESKTOP + "/claude-code-sessions/*/*/local_*.json"
 DESKTOP_LOGS = [DESKTOP + "/logs/main.log", DESKTOP + "/logs/main1.log"]   # второй — после ротации
@@ -129,17 +130,21 @@ def cache_tick():
 
 # ---- Claude Desktop
 
-@functools.cache
 def boot_time():
-    return next(int(l.split()[1]) for l in read("/proc/stat").splitlines() if l.startswith("btime"))
+    """Время загрузки (unix). Не кэшировать: после шага системных часов btime сдвигается вместе с ними."""
+    return next(int(l.split()[1]) for l in read(PROC + "/stat").splitlines() if l.startswith("btime"))
 
 
 def proc_name(pid):
-    return read(f"/proc/{pid}/comm").strip()
+    return read(f"{PROC}/{pid}/comm").strip()
 
 
 def proc_start(pid):
-    return int(read(f"/proc/{pid}/stat").rsplit(")", 1)[1].split()[19])
+    return int(read(f"{PROC}/{pid}/stat").rsplit(")", 1)[1].split()[19])
+
+
+def proc_mine(pid):
+    return os.stat(f"{PROC}/{pid}").st_uid == os.getuid()
 
 
 _desktop = None     # (pid, starttime) самого старого процесса claude-desktop
@@ -151,15 +156,15 @@ def desktop_start():
     if _desktop:
         pid, start = _desktop
         try:
-            if proc_name(pid) == "claude-desktop" and proc_start(pid) == start:
+            if proc_name(pid) == "claude-desktop" and proc_start(pid) == start and proc_mine(pid):
                 return boot_time() + start // os.sysconf("SC_CLK_TCK")
         except (OSError, IndexError, ValueError):
             pass
     found = []
-    for comm in glob.glob("/proc/[0-9]*/comm"):
+    for comm in glob.glob(PROC + "/[0-9]*/comm"):
         try:
-            if read(comm).strip() == "claude-desktop":
-                pid = comm.split("/")[2]
+            pid = os.path.basename(os.path.dirname(comm))
+            if read(comm).strip() == "claude-desktop" and proc_mine(pid):     # Desktop другого пользователя — не наш
                 found.append((proc_start(pid), pid))
         except (OSError, IndexError, ValueError):
             pass    # процесс завершился, пока читали /proc
@@ -360,9 +365,26 @@ def background(cli_id, now, ended=None):
 
 
 _turns = {}     # журнал → начало текущего хода: в длинном ходе запрос уходит из окна read_tail
+_changes = {}   # журнал → (mtime, монотонное время, когда его увидели)
+
+
+def age(path, changed, now):
+    """Сколько журнал молчит. mtime «из будущего» (часы шагнули назад) — считать по монотонным часам."""
+    if changed <= now + 1:
+        return now - changed
+    seen = _changes.get(path)
+    if not seen or seen[0] != changed:
+        seen = _changes[path] = (changed, time.monotonic())
+    return time.monotonic() - seen[1]
 
 
 def status(cli_id, now, busy=False):
+    """См. journal_status. Время «из будущего» (часы шагнули назад) — неизвестно: иначе «Готово» и @дольше залипают."""
+    kind, since = journal_status(cli_id, now, busy)
+    return kind, (None if since and since > now + 1 else min(since, now) if since else since)
+
+
+def journal_status(cli_id, now, busy=False):
     """(состояние, с какого момента): thinking / coding / choice / done / waiting / error / compacting.
     done — ход окончен ответом (с его времени; «Готово» из него делает build), waiting — ответа не было
     (Esc, /model) или журнал молчит. busy — реестр говорит, что ход идёт: долгое молчание журнала не «ждёт»."""
@@ -377,6 +399,7 @@ def status(cli_id, now, busy=False):
 
     mark = mtime(compact_marker(cli_id))
     if mark:
+        mark = min(mark, now)
         # сжатие кончилось (compact_boundary), сорвалось (ошибка) или отменено (чат пошёл дальше)
         after = [e for e in entries if e.get("timestamp") and ts(e) > mark]     # запрос перед автосжатием — до метки
         over = any(e.get("subtype") == "compact_boundary" or e.get("type") == "assistant"
@@ -412,7 +435,7 @@ def status(cli_id, now, busy=False):
         if last["type"] == "assistant" and isinstance(content, list) else set()
     if tools & ASK_TOOLS:
         return "choice", ts(last)
-    if now - changed > STALE and not busy:
+    if age(path, changed, now) > STALE and not busy:
         return "waiting", changed
     if tools & CODE_TOOLS:
         return "coding", ts(last)
@@ -841,7 +864,7 @@ class Link:
         self.shown, self.retry_at, self.delay = None, 0, POLL
 
     def update(self, activity, now):
-        """Строка для лога или None."""
+        """Строка для лога или None. now — монотонные часы (time.monotonic): шаг системных часов паузу не тянет."""
         if self.dc.sock and not self.dc.alive():
             self.dc.close()
             self.shown = "reconnect"
@@ -888,7 +911,7 @@ def main():
         cache_tick()
         try:
             activity, _ = presence.build(time.time())
-            msg, fails = link.update(activity, time.time()), 0
+            msg, fails = link.update(activity, time.monotonic()), 0     # паузы — по монотонным часам
         except InvalidClient as e:
             print(f"Discord: {e}, проверь client_id в config.toml", file=sys.stderr)
             sys.exit(EX_CONFIG)
@@ -896,7 +919,7 @@ def main():
             fails += 1
             msg = f"сбой опроса: {failure(e)}"
             if fails == FAILS_CLEAR:
-                link.update(None, time.time())      # не держать в Discord застывшую карточку
+                link.update(None, time.monotonic())      # не держать в Discord застывшую карточку
         if msg and msg != last:    # одинаковые строки подряд не повторять
             print(msg, flush=True)
             last = msg
