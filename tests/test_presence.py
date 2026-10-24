@@ -340,7 +340,8 @@ class Registry(Sandbox):
         self.entry(2, "local_b", "busy")                 # pid занят другим процессом
         self.entry(3, "local_c", "busy", start="999")    # pid переиспользован
         self.entry(4, "local_a", "idle", at=0)           # старая запись того же чата
-        names = {1: "claude", 2: "bash", 3: "claude", 4: "claude"}
+        self.entry(0, "local_a", "idle", at=0)           # и ещё одна — glob может отдать её последней
+        names = {0: "claude", 1: "claude", 2: "bash", 3: "claude", 4: "claude"}
         with mock.patch.multiple(p, proc_name=lambda pid: names[pid], proc_start=lambda pid: 100):
             reg = p.registry()
         self.assertEqual(set(reg), {"local_a"})
@@ -554,20 +555,23 @@ class Focus(Sandbox):
             for i in ids:
                 fh.write(f"{at} [info] [CCD] LocalSessions.setFocusedSession: sessionId={i}\n")
 
-    def session(self, sid, title, raw=None):
+    def session(self, sid, title, raw=None, focused_at=1):
         d = f"{self.dir.name}/sessions/a/b"
         os.makedirs(d, exist_ok=True)
         with open(f"{d}/{sid}.json", "w") as fh:
-            fh.write(raw if raw is not None else json.dumps({"sessionId": sid, "title": title, "lastFocusedAt": 1}))
+            fh.write(raw if raw is not None else json.dumps({"sessionId": sid, "title": title, "lastFocusedAt": focused_at}))
 
     def at(self):
         return time.mktime(time.strptime("2026-10-01 21:00:53", "%Y-%m-%d %H:%M:%S"))
 
     def test_focused_session_from_log(self):
-        self.session("local_a", "A")
+        # п4-07: самая свежая по lastFocusedAt — A, а в фокусе по логу — B
+        self.session("local_a", "A", focused_at=100)
         self.session("local_b", "B")
         self.log("local_a", "null", "local_b")
         self.assertEqual(p.active_session(self.at())["title"], "B")
+        self.log()
+        self.assertEqual(p.active_session(self.at())["title"], "A")      # без фокуса в логах — самая свежая
 
     def test_no_chat_after_delay(self):
         self.session("local_a", "A")
@@ -594,7 +598,7 @@ class Focus(Sandbox):
         self.assertEqual(p.active_session(self.at())["title"], "B")
 
     def test_rotated_log(self):
-        self.session("local_a", "A")
+        self.session("local_a", "A", focused_at=100)
         self.session("local_b", "B")
         self.log(name="main.log")
         self.log("local_b", name="main1.log")
@@ -606,6 +610,55 @@ class Focus(Sandbox):
         self.session("local_half", "", raw='{"sessionId": ')
         self.log("local_a")
         self.assertEqual(p.active_session(self.at())["title"], "A")
+
+
+class Command(unittest.TestCase):
+    """Разбор аргументов __main__ (п4-14, п2-16)."""
+
+    def run_cli(self, *args, stdin="", **env):
+        with tempfile.TemporaryDirectory() as d:
+            env = {**os.environ, "HOME": d, "XDG_CACHE_HOME": d + "/cache", "XDG_CONFIG_HOME": d + "/conf",
+                   "XDG_RUNTIME_DIR": d, **env}
+            r = subprocess.run([sys.executable, ROOT + "/claude_desktop_presence.py", *args], input=stdin, env=env,
+                               capture_output=True, text=True, timeout=20)
+            marks = sorted(os.listdir(d + "/cache/claude-desktop-presence")) if os.path.isdir(d + "/cache/claude-desktop-presence") else []
+            return r.returncode, r.stdout + r.stderr, marks
+
+    def test_hook_does_not_start_the_service(self):
+        rc, out, marks = self.run_cli("--hook", stdin=json.dumps({"hook_event_name": "PreCompact", "session_id": "s1"}))
+        self.assertEqual((rc, out), (0, ""))
+        self.assertEqual(marks, ["compact-s1", "compacted-s1"])
+
+    def test_update_words_argument_order(self):
+        with tempfile.TemporaryDirectory() as d:
+            src, dst = d + "/ru.txt", d + "/words.txt"
+            with open(src, "w") as fh:
+                fh.write("[думает]\nДумает\nНовая\n")
+            with open(dst, "w") as fh:
+                fh.write("[думает]\nДумает\n")
+            rc, out, _ = self.run_cli("--update-words", src, dst)
+            self.assertEqual(rc, 0, out)
+            with open(dst) as fh:
+                self.assertIn("Новая", fh.read())
+            self.assertFalse(os.path.exists(src + ".seen"))
+        rc, out, _ = self.run_cli("--update-words", "only-one")
+        self.assertEqual(rc, 2)
+        self.assertNotIn("Traceback", out)
+
+    def test_help_and_version_do_not_start_the_service(self):
+        for args, code in ((["--help"], 0), (["-h"], 0), (["--version"], 0), (["--bogus"], 2)):
+            with self.subTest(args):
+                rc, out, _ = self.run_cli(*args)
+                self.assertEqual(rc, code)
+                self.assertIn(p.__version__, out)
+
+    def test_second_instance_exits(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": d}):
+            first = p.single()
+            self.addCleanup(first.close)
+            with self.assertRaises(SystemExit) as e, mock.patch("sys.stderr"):
+                p.single()
+            self.assertIn("уже запущена", str(e.exception.code))
 
 
 class Words(unittest.TestCase):
@@ -624,7 +677,8 @@ class Words(unittest.TestCase):
     def test_not_utf8_words_file(self):
         with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as fh:
             fh.write("[ждёт]\nСамурай\n".encode("cp1251"))
-        self.assertEqual(p.lines(fh.name), [])
+        with mock.patch("sys.stderr"):
+            self.assertEqual(p.lines(fh.name), [])
         os.unlink(fh.name)
 
     def test_conditions_are_strict(self):
@@ -880,19 +934,67 @@ class Config(unittest.TestCase):
             self.load("", raw='client_id = "1"\ntitle_untitled = "Без"\n'.encode("cp1251"))
 
 
+class Main(unittest.TestCase):
+    """main() целиком, с подменённой карточкой и связью (п4-05, п2-09)."""
+
+    def loop(self, build, update, polls=5):
+        calls = []
+        def fake_update(activity, now):
+            calls.append((activity, now))
+            return update(activity, now)
+        sleeps = iter(range(polls))
+        def sleep(_):
+            if next(sleeps, None) is None:
+                raise KeyboardInterrupt
+        with mock.patch.multiple(p, config=lambda: dict(p.DEFAULTS, client_id="1"), single=lambda: None), \
+                mock.patch.object(p.Presence, "build", lambda self, now: build()), \
+                mock.patch.object(p.Link, "update", lambda self, a, now: fake_update(a, now)), \
+                mock.patch("time.sleep", sleep), mock.patch("time.monotonic", return_value=42.0), \
+                mock.patch("sys.stdout"), mock.patch("sys.stderr"):
+            try:
+                p.main()
+            except KeyboardInterrupt:
+                pass
+        return calls
+
+    def test_invalid_client_exits_with_config_code(self):
+        def update(a, now):
+            raise p.InvalidClient("Invalid Client ID")
+        with self.assertRaises(SystemExit) as e:
+            self.loop(lambda: ({"state": "x"}, "thinking"), update)
+        self.assertEqual(e.exception.code, p.EX_CONFIG)
+
+    def test_failing_polls_clear_the_card(self):
+        def build():
+            raise ValueError("битый файл")
+        calls = self.loop(build, lambda a, now: None)
+        self.assertEqual(calls, [(None, 42.0)])         # после FAILS_CLEAR сбоев — один раз снять карточку
+
+    def test_pauses_use_monotonic_clock(self):
+        calls = self.loop(lambda: ({"state": "x"}, "thinking"), lambda a, now: None, polls=1)
+        self.assertEqual({now for _, now in calls}, {42.0})
+
+
 class FakeDiscord:
     """AF_UNIX-сервер вместо Discord: на каждый кадр отвечает по очереди из replies."""
 
-    def __init__(self, path, replies):
-        self.replies, self.got = list(replies), []
+    def __init__(self, path, replies, times=1):
+        self.script, self.times = list(replies), times     # times — столько подключений принять
+        self.replies, self.got, self.conn = list(replies), [], None
         self.srv = socket.socket(socket.AF_UNIX)
         self.srv.bind(path)
         self.srv.listen(1)
         threading.Thread(target=self.serve, daemon=True).start()
 
     def serve(self):
+        with self.srv:
+            for _ in range(self.times):
+                self.replies = list(self.script)
+                self.serve_one()
+
+    def serve_one(self):
         conn, _ = self.srv.accept()
-        with conn, self.srv:
+        with conn:
             while self.replies:
                 head = conn.recv(8)
                 if len(head) < 8:
@@ -902,7 +1004,12 @@ class FakeDiscord:
                 rop, body = self.replies.pop(0)
                 raw = json.dumps(body).encode()
                 conn.sendall(struct.pack("<II", rop, len(raw)) + raw)
+            self.conn = conn
             conn.recv(1)    # как настоящий Discord: держать соединение, пока клиент не закроет
+
+    def drop(self):
+        """Discord закрылся."""
+        self.conn.shutdown(socket.SHUT_RDWR)
 
 
 class DiscordIPC(unittest.TestCase):
@@ -942,10 +1049,50 @@ class DiscordIPC(unittest.TestCase):
             p.Discord("bad").connect()
 
     def test_link_reports_reconnect(self):
-        self.fake((1, {"evt": "READY"}), (1, {"evt": None}))
+        # п4-06: первое подключение, обрыв, переподключение
+        srv = self.fake((1, {"evt": "READY"}), (1, {"evt": None}))
         link = p.Link("123")
         self.addCleanup(link.dc.close)
         self.assertTrue(link.update({"state": "x"}, T0).startswith("подключился к Discord"))
+        srv.drop()
+        os.remove(self.dir.name + "/discord-ipc-0")
+        self.fake((1, {"evt": "READY"}), (1, {"evt": None}))
+        for _ in range(50):
+            if not link.dc.alive():
+                break
+            time.sleep(0.01)
+        self.assertEqual(link.update({"state": "x"}, T0 + 4), "подключился к Discord · → x")
+
+    def test_handshake_without_ready_or_with_close(self):
+        self.fake((1, {"evt": "NOPE"}))
+        with self.assertRaisesRegex(ConnectionError, "нет READY"):
+            p.Discord("123").connect()
+        os.remove(self.dir.name + "/discord-ipc-0")
+        self.fake((2, {"code": 4002, "message": "rate limited"}))
+        with self.assertRaises(ConnectionError) as e:
+            p.Discord("123").connect()
+        self.assertNotIsInstance(e.exception, p.InvalidClient)
+
+    def test_rejected_after_ready_backs_off_and_tries_other_socket(self):
+        # п2-05: READY есть, карточку не принял — пауза растёт, следующий раз — другой сокет
+        bad = self.dir.name + "/discord-ipc-0"
+        FakeDiscord(bad, [(1, {"evt": "READY"})], times=3)     # READY, а на SET_ACTIVITY закрывает сокет
+        link = p.Link("123")
+        self.addCleanup(link.dc.close)
+        self.assertIn("ошибка", link.update({"state": "x"}, T0))
+        self.assertIn("ошибка", link.update({"state": "x"}, link.retry_at))
+        self.assertEqual(link.delay, 4 * p.POLL)                  # пауза растёт, а не сбрасывается на READY
+        good = FakeDiscord(self.dir.name + "/discord-ipc-1", [(1, {"evt": "READY"}), (1, {"evt": None})])
+        link.retry_at = T0
+        self.assertTrue(link.update({"state": "x"}, T0 + 1).startswith("подключился"))      # другой сокет первым
+        self.assertEqual(good.got[1][1]["cmd"], "SET_ACTIVITY")
+        self.assertEqual(link.delay, p.POLL)
+
+    def test_invalid_client_through_link(self):
+        # п4-05: неверный client_id не прячется за переподключениями
+        self.fake((2, {"code": 4000, "message": "Invalid Client ID"}))
+        with self.assertRaises(p.InvalidClient):
+            p.Link("bad").update({"state": "x"}, T0)
 
     def test_link_keeps_rejected_card(self):
         srv = self.fake((1, {"evt": "READY"}), (1, {"evt": "ERROR", "data": {"message": "bad"}}))
@@ -960,6 +1107,11 @@ class DiscordIPC(unittest.TestCase):
         link = p.Link("123")
         self.assertIn("не найден", link.update({"state": "x"}, T0))
         self.assertIsNone(link.update({"state": "x"}, T0 + 1))      # пауза ещё не прошла
+        delays = []
+        for i in range(6):
+            link.update({"state": "x"}, link.retry_at)
+            delays.append(link.delay)
+        self.assertEqual(delays[-1], p.RETRY_MAX)                    # пауза растёт до предела
         self.assertIsNone(link.update(None, T0 + 100))              # показывать нечего — Discord не ищет
 
     def test_no_discord(self):

@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Discord Rich Presence для Claude Desktop (Linux), без зависимостей.
 
-Чат — последний setFocusedSession в ~/.config/Claude/logs/main.log (null — ни один не открыт),
-запасной путь — claude-code-sessions. Состояние — по хвосту журнала сессии
-~/.claude/projects/*/<id>.jsonl; сжатие — по метке хука PreCompact (--hook).
+Чат — последний setFocusedSession в ~/.config/Claude/logs/main.log или main1.log после ротации
+(null — ни один не открыт), запасной путь — самый свежий из claude-code-sessions.
+Состояние — по хвосту журнала сессии ~/.claude/projects/*/<id>.jsonl; реестр Claude Code
+~/.claude/sessions — разрешение и «ход идёт»; журналы субагентов — фон; сжатие — по метке хука PreCompact (--hook).
 """
 __version__ = "0.1.2"
 
@@ -693,7 +694,7 @@ class Presence:
         self.event, self.event_until = None, 0
 
     def build(self, now):
-        """(activity для Discord, состояние) или (None, None) — показывать нечего."""
+        """(activity для Discord, что показано: состояние или event) или (None, None) — показывать нечего."""
         start = desktop_start()
         s = active_session(now) if start else None
         if not s:
@@ -788,7 +789,7 @@ def sockets():
 class Discord:
     def __init__(self, client_id):
         self.client_id = client_id
-        self.sock = None
+        self.sock, self.path, self.failed = None, None, None
 
     def _send(self, op, data):
         raw = json.dumps(data).encode()
@@ -813,12 +814,14 @@ class Discord:
 
     def connect(self):
         err = ConnectionError("Discord не найден")
-        for path in sockets():
+        found = sockets()     # сокет, на котором карточка уже не прошла, — последним: дать шанс остальным
+        for path in [x for x in found if x != self.failed] + [x for x in found if x == self.failed]:
             try:
                 self.sock = socket.socket(socket.AF_UNIX)
                 self.sock.settimeout(5)
                 self.sock.connect(path)
                 if self._send(0, {"v": 1, "client_id": self.client_id}).get("evt") == "READY":
+                    self.path = path
                     return
                 err = ConnectionError(f"{path}: нет READY")
             except InvalidClient:
@@ -896,14 +899,17 @@ class Link:
         try:
             if not self.dc.sock:
                 self.dc.connect()
-                self.delay, note = POLL, "подключился к Discord · "
+                note = "подключился к Discord · "
             self.dc.set(activity)
+            self.delay, self.dc.failed = POLL, None      # пауза сбрасывается, только когда карточка дошла
         except DiscordError as e:
             self.shown = activity   # то же самое не слать, связь не рвать
             return f"Discord отклонил карточку: {e}"
         except InvalidClient:
             raise
         except (OSError, ValueError) as e:
+            if self.dc.sock:
+                self.dc.failed = self.dc.path       # READY был, а карточку не принял
             self.dc.close()
             self.shown = "reconnect"
             self.retry_at, self.delay = now + self.delay, min(self.delay * 2, RETRY_MAX)
@@ -923,8 +929,22 @@ def failure(e):
     return type(e).__name__ + where
 
 
+def single():
+    """Второй экземпляр (служба уже идёт, а запустили руками) — выйти: иначе два соединения и разные слова."""
+    import fcntl
+    run = os.environ.get("XDG_RUNTIME_DIR") or STATE_DIR
+    os.makedirs(run, mode=0o700, exist_ok=True)
+    fh = open(os.path.join(run, "claude-desktop-presence.lock"), "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit("уже запущена: systemctl --user status claude-desktop-presence")
+    return fh
+
+
 def main():
     conf = config()
+    lock = single()     # держать открытым до выхода
     presence, link, last, fails = Presence(conf), Link(str(conf["client_id"])), None, 0
     while True:
         cache_tick()
@@ -947,12 +967,22 @@ def main():
 
 if __name__ == "__main__":
     sys.stdout.reconfigure(errors="replace")    # локаль не UTF-8: вопросики вместо падения
-    if "--hook" in sys.argv[1:]:
+    args = sys.argv[1:]
+    if "--hook" in args:
         hook()
-    elif sys.argv[1:2] == ["--update-words"] and len(sys.argv) == 4:
+    elif args[:1] == ["--update-words"] and len(args) == 3:
         try:
-            update_words(sys.argv[2], sys.argv[3])
+            update_words(args[1], args[2])
         except (OSError, ValueError) as e:
             sys.exit(f"words.txt: {failure(e)}")
-    else:
+    elif args[:1] in (["--version"], ["-V"]):
+        print("claude-desktop-presence", __version__)
+    elif not args:
         main()
+    else:
+        print(f"claude-desktop-presence {__version__}: Discord Rich Presence для Claude Desktop\n"
+              "  без ключей          служба (обычно её запускает systemd --user)\n"
+              "  --hook              хук PreCompact Claude Code (читает stdin)\n"
+              "  --update-words A B  дописать новые фразы из A в свой words.txt B\n"
+              "  --version           версия", file=sys.stdout if args[:1] in (["-h"], ["--help"]) else sys.stderr)
+        sys.exit(0 if args[:1] in (["-h"], ["--help"]) else 2)
