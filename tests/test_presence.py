@@ -1,5 +1,5 @@
 """Проверки поведением: искусственные журналы, лог Desktop, файл слов, поддельный сокет Discord."""
-import datetime, json, os, socket, struct, sys, tempfile, threading, time, unittest
+import datetime, json, os, socket, struct, subprocess, sys, tempfile, threading, time, unittest
 from unittest import mock
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
@@ -29,7 +29,7 @@ TEXT = [{"type": "text"}]
 
 
 class Sandbox(unittest.TestCase):
-    """Временные каталоги вместо ~/.claude, ~/.config/Claude и кэша."""
+    """Временные каталоги вместо ~/.claude, ~/.config/Claude, настроек и кэша (п4-10: и реестра, и CONF_DIR)."""
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -38,7 +38,8 @@ class Sandbox(unittest.TestCase):
         os.makedirs(d + "/logs")
         self.patch = mock.patch.multiple(p, TRANSCRIPTS=d + "/projects/*/{}.jsonl", STATE_DIR=d + "/state",
                                          DESKTOP_LOGS=[d + "/logs/main.log", d + "/logs/main1.log"],
-                                         SESSIONS=d + "/sessions/*/*/local_*.json")
+                                         SESSIONS=d + "/sessions/*/*/local_*.json",
+                                         REGISTRY=d + "/sessions-reg/*.json", CONF_DIR=d + "/conf")
         self.patch.start()
         p._cache.clear()
         p._focus.clear()
@@ -266,6 +267,54 @@ class Status(Sandbox):
         self.assertEqual(os.stat(p.STATE_DIR).st_mode & 0o777, 0o700)            # п1-17
         self.assertEqual(os.stat(p.compact_marker("s1")).st_mode & 0o777, 0o600)
 
+    def test_glob_chars_in_paths(self):
+        # п1-04: «[1]» в CLAUDE_CONFIG_DIR и XDG_CACHE_HOME — не шаблон glob
+        d = self.dir.name + "/cc[1]"
+        os.makedirs(d + "/projects/p")
+        with open(d + "/projects/p/abc.jsonl", "w") as fh:
+            fh.write(json.dumps(user("x")) + "\n")
+        code = ("import sys; sys.path.insert(0, sys.argv[1]); import claude_desktop_presence as p, time; "
+                "print(p.status('abc', time.time())[0])")
+        out = subprocess.run([sys.executable, "-c", code, ROOT], env={**os.environ, "CLAUDE_CONFIG_DIR": d, "XDG_CACHE_HOME": self.dir.name},
+                             capture_output=True, text=True).stdout.strip()
+        self.assertEqual(out, "thinking")
+        with mock.patch.object(p, "STATE_DIR", self.dir.name + "/cache[1]/cdp"):
+            os.makedirs(p.STATE_DIR, mode=0o700)
+            for name in ("compact-old", "compacted-old"):
+                open(p.STATE_DIR + "/" + name, "w").close()
+                os.utime(p.STATE_DIR + "/" + name, (1, 1))
+            self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1"})
+            self.assertEqual(sorted(os.listdir(p.STATE_DIR)), ["compact-s1", "compacted-s1"])
+
+    def test_compacted_marks_kept_for_a_month(self):
+        # п4-01: @сессия с порогом больше недели не теряет метку сжатия
+        os.makedirs(p.STATE_DIR, mode=0o700)
+        for name, days in (("compacted-a", 10), ("compacted-b", 31)):
+            open(p.STATE_DIR + "/" + name, "w").close()
+            t = time.time() - days * 86400
+            os.utime(p.STATE_DIR + "/" + name, (t, t))
+        self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1"})
+        self.assertTrue(os.path.exists(p.STATE_DIR + "/compacted-a"))
+        self.assertFalse(os.path.exists(p.STATE_DIR + "/compacted-b"))
+
+    def test_foreign_state_dir_is_not_trusted(self):
+        # п1-16: каталог меток — ссылка или чужой: хук не пишет, служба не верит меткам
+        other = self.dir.name + "/other"
+        os.makedirs(other)
+        os.symlink(other, p.STATE_DIR)
+        self.run_hook({"hook_event_name": "PreCompact", "session_id": "s1"})
+        self.assertEqual(os.listdir(other), [])
+        open(other + "/compact-s1", "w").close()
+        self.journal(user("x"), assistant(TEXT, "end_turn"))
+        self.assertEqual(p.status("s1", T0 + 5)[0], "done")
+        os.remove(p.STATE_DIR)
+        os.makedirs(p.STATE_DIR, mode=0o700)
+        open(p.compact_marker("s1"), "w").close()
+        os.utime(p.compact_marker("s1"), (T0 + 1, T0 + 1))
+        with mock.patch("os.getuid", return_value=os.getuid() + 1):
+            self.assertEqual(p.status("s1", T0 + 5)[0], "done")
+        self.assertEqual(p.status("s1", T0 + 5)[0], "compacting")
+
     def test_hook_ignores_garbage(self):
         for payload in ("not json", "[1]", json.dumps({"hook_event_name": "PreCompact", "session_id": "../x"}),
                         json.dumps({"hook_event_name": "PreCompact", "session_id": None})):
@@ -292,8 +341,7 @@ class Registry(Sandbox):
         self.entry(3, "local_c", "busy", start="999")    # pid переиспользован
         self.entry(4, "local_a", "idle", at=0)           # старая запись того же чата
         names = {1: "claude", 2: "bash", 3: "claude", 4: "claude"}
-        with mock.patch.multiple(p, REGISTRY=self.dir.name + "/sessions-reg/*.json",
-                                 proc_name=lambda pid: names[pid], proc_start=lambda pid: 100):
+        with mock.patch.multiple(p, proc_name=lambda pid: names[pid], proc_start=lambda pid: 100):
             reg = p.registry()
         self.assertEqual(set(reg), {"local_a"})
         self.assertEqual(reg["local_a"]["waitingFor"], "permission prompt")

@@ -35,6 +35,8 @@ if env=$(systemctl --user show-environment 2>/dev/null); then
 else
     cfg=${XDG_CONFIG_HOME:-$HOME/.config} cache=${XDG_CACHE_HOME:-$HOME/.cache}
 fi
+# метки сжатия: хук пишет их в окружении сессии (как у этой оболочки), служба читает там же — путь в юнит
+state=${XDG_CACHE_HOME:-$HOME/.cache}
 bin=$HOME/.local/bin/claude-desktop-presence
 conf=$cfg/claude-desktop-presence
 unit=$cfg/systemd/user/claude-desktop-presence.service
@@ -112,7 +114,7 @@ if (( uninstall )); then
     systemctl --user disable --now claude-desktop-presence 2>/dev/null || true
     settings_hook remove || true
     rm -f "$bin" "$unit"
-    rm -rf "$cache/claude-desktop-presence"
+    rm -rf "$cache/claude-desktop-presence" "$state/claude-desktop-presence"
     systemctl --user daemon-reload 2>/dev/null || true
     if [[ -d $conf ]]; then say "удалено; настройки остались в $conf" "removed; settings are kept in $conf"
     else say "удалено" "removed"; fi
@@ -169,8 +171,9 @@ fi
 "$py" claude_desktop_presence.py --update-words "words/$lang.txt" "$conf/words.txt" \
     || say "words.txt не обновлён, установка продолжается" "words.txt was not updated, installation goes on" >&2
 [[ -e $conf/hide.txt ]] || cp "words/hide.$lang.txt" "$conf/hide.txt"
-py_unit=${py//%/%%}
-sed "s|^ExecStart=|ExecStart=\"$py_unit\" |" claude-desktop-presence.service > "$unit"
+py_unit=${py//%/%%} state_unit=${state//%/%%}
+sed -e "s|^ExecStart=|ExecStart=\"$py_unit\" |" -e "s|^\[Service\]$|&\nEnvironment=\"XDG_CACHE_HOME=$state_unit\"|" \
+    claude-desktop-presence.service > "$unit"
 if (( hook )); then
     settings_hook add || say "продолжаю без хука: сжатие в карточке видно не будет" "going on without the hook: compacting will not show on the card"
 fi

@@ -7,18 +7,19 @@
 """
 __version__ = "0.1.2"
 
-import datetime, glob, json, os, random, re, select, shutil, socket, struct, sys, time, unicodedata, uuid
+import datetime, glob, json, os, random, re, select, shutil, socket, stat, struct, sys, time, unicodedata, uuid
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
 STATE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or HOME + "/.cache", "claude-desktop-presence")
 PROC = "/proc"
 DESKTOP = HOME + "/.config/Claude"
-SESSIONS = DESKTOP + "/claude-code-sessions/*/*/local_*.json"
+# пути из окружения — в glob через glob.escape: «[1]» в имени каталога — не шаблон
+SESSIONS = glob.escape(DESKTOP) + "/claude-code-sessions/*/*/local_*.json"
 DESKTOP_LOGS = [DESKTOP + "/logs/main.log", DESKTOP + "/logs/main1.log"]   # второй — после ротации
 CLAUDE_HOME = os.environ.get("CLAUDE_CONFIG_DIR") or HOME + "/.claude"
-TRANSCRIPTS = CLAUDE_HOME + "/projects/*/{}.jsonl"
-REGISTRY = CLAUDE_HOME + "/sessions/*.json"     # Claude Code: pid → status, waitingFor
+TRANSCRIPTS = glob.escape(CLAUDE_HOME) + "/projects/*/{}.jsonl"
+REGISTRY = glob.escape(CLAUDE_HOME) + "/sessions/*.json"     # Claude Code: pid → status, waitingFor
 
 # секунды
 POLL = 4
@@ -321,6 +322,20 @@ def interrupted(e):
     return False
 
 
+def transcripts(cli_id):
+    """Шаблон glob журналов сессии; id из файлов Desktop — тоже не шаблон."""
+    return TRANSCRIPTS.replace("{}", glob.escape(cli_id))
+
+
+def state_ok():
+    """Каталог меток — свой: не ссылка и не чужой (общий XDG_CACHE_HOME), иначе метки не читать и не писать."""
+    try:
+        st = os.lstat(STATE_DIR)
+    except OSError:
+        return False
+    return stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
+
+
 def compact_marker(cli_id):
     return os.path.join(STATE_DIR, "compact-" + cli_id)
 
@@ -359,7 +374,7 @@ def mtime(path):
 def background(cli_id, now, ended=None):
     """Ход окончен, но фоновые агенты (Agent, Workflow) этой сессии ещё пишут свои журналы.
     ended — конец хода: синхронный субагент пишет только до него, фоновый — и после."""
-    newest = max((mtime(f) or 0 for d in glob.glob(TRANSCRIPTS.format(cli_id)[:-6] + "/subagents")
+    newest = max((mtime(f) or 0 for d in glob.glob(transcripts(cli_id)[:-6] + "/subagents")
                   for f in glob.glob(glob.escape(d) + "/**/*.jsonl", recursive=True)), default=0)
     return now - newest < BACKGROUND and (ended is None or newest > ended + 1)
 
@@ -388,7 +403,7 @@ def journal_status(cli_id, now, busy=False):
     """(состояние, с какого момента): thinking / coding / choice / done / waiting / error / compacting.
     done — ход окончен ответом (с его времени; «Готово» из него делает build), waiting — ответа не было
     (Esc, /model) или журнал молчит. busy — реестр говорит, что ход идёт: долгое молчание журнала не «ждёт»."""
-    files = [(m, f) for f in glob.glob(TRANSCRIPTS.format(cli_id)) if (m := mtime(f))] if cli_id else []
+    files = [(m, f) for f in glob.glob(transcripts(cli_id)) if (m := mtime(f))] if cli_id else []
     if not files:
         return "waiting", None      # журнала нет: момент начала неизвестен
     changed, path = max(files)
@@ -397,7 +412,7 @@ def journal_status(cli_id, now, busy=False):
     except FileNotFoundError:
         return "waiting", None
 
-    mark = mtime(compact_marker(cli_id))
+    mark = mtime(compact_marker(cli_id)) if state_ok() else None
     if mark:
         mark = min(mark, now)
         # сжатие кончилось (compact_boundary), сорвалось (ошибка) или отменено (чат пошёл дальше)
@@ -723,7 +738,8 @@ class Presence:
         morning = self.morning and in_hours(clock.hour, MORNING)
         # возраст сессии — от создания или от последнего /compact (метка хука), что позже
         cli = s.get("cliSessionId")
-        created = max(num(s.get("createdAt")) / 1000, (mtime(compacted_marker(cli)) if isinstance(cli, str) else 0) or 0) or None
+        compacted = mtime(compacted_marker(cli)) if isinstance(cli, str) and state_ok() else None
+        created = max(num(s.get("createdAt")) / 1000, compacted or 0) or None
         if kind == "cloud":
             self.word = None
         else:
@@ -843,14 +859,17 @@ def hook():
         sid = data.get("session_id")
         if data.get("hook_event_name") == "PreCompact" and isinstance(sid, str) and re.fullmatch(r"[\w-]{1,100}", sid):
             os.umask(0o077)     # метки с id сессий — только свои
-            os.makedirs(STATE_DIR, exist_ok=True)
+            os.makedirs(STATE_DIR, mode=0o700, exist_ok=True)
+            if not state_ok():
+                return
             open(compact_marker(sid), "w").close()
             open(compacted_marker(sid), "w").close()
-            for old in glob.glob(compact_marker("*")):      # метки сессий, которые карточка так и не открыла
+            marks = glob.escape(STATE_DIR) + "/"
+            for old in glob.glob(marks + "compact-*"):      # метки сессий, которые карточка так и не открыла
                 if time.time() - (mtime(old) or time.time()) > 86400:
                     os.remove(old)
-            for old in glob.glob(compacted_marker("*")):    # старше недели: возраст и так больше любого порога
-                if time.time() - (mtime(old) or time.time()) > 7 * 86400:
+            for old in glob.glob(marks + "compacted-*"):    # старше 30 суток: @сессия с порогом больше считается от создания чата
+                if time.time() - (mtime(old) or time.time()) > 30 * 86400:
                     os.remove(old)
     except Exception:
         pass

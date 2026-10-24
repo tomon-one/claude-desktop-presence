@@ -148,6 +148,13 @@ class Install(unittest.TestCase):
         py = subprocess.run(["bash", "-c", "command -v python3"], env=self.env, capture_output=True, text=True).stdout.strip()
         self.assertEqual(exec_start.strip(), f'ExecStart="{py}" %h/.local/bin/claude-desktop-presence')
 
+    def test_hook_and_service_share_the_marks_dir(self):
+        # п1-15: XDG_CACHE_HOME сессии (как у хука) записан в юнит
+        self.run_sh("--no-hook", XDG_CACHE_HOME=self.home + "/cache")
+        with open(self.home + "/.config/systemd/user/claude-desktop-presence.service") as fh:
+            unit = fh.read()
+        self.assertIn(f'[Service]\nEnvironment="XDG_CACHE_HOME={self.home}/cache"\n', unit)
+
     def test_config_checked_by_the_program_itself(self):
         # п2-02: проверка настроек та же, что у службы
         rc, out = self.run_sh("--no-hook")
