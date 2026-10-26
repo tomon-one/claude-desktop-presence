@@ -79,6 +79,7 @@ Optional settings in `config.toml`:
 |---|---|
 | `status_display = "state"` | the server member list shows the phrase under your name instead of the app name |
 | `state_icons = true` | a state icon in the corner of the image. Icons are in [docs/icons](docs/icons); upload them to Art Assets with the file names as keys |
+| `hide_in_games = false` | don't hide the card during a game. By default it hides while a game runs through `gamemoderun`: Discord shows only one game from your computer, and the card would take the game's place |
 | `[labels]` | the tooltip on the state icon: what Claude is doing, in plain words |
 | `buttons` | up to two link buttons; other people see them, you don't |
 

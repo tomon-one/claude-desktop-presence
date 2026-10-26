@@ -1149,7 +1149,7 @@ class Config(unittest.TestCase):
 class Main(unittest.TestCase):
     """main() целиком, с подменённой карточкой и связью (п4-05, п2-09)."""
 
-    def loop(self, build, update, polls=5):
+    def loop(self, build, update, polls=5, conf=None, gaming=False):
         calls = []
         def fake_update(activity, now):
             calls.append((activity, now))
@@ -1158,8 +1158,8 @@ class Main(unittest.TestCase):
         def sleep(_):
             if next(sleeps, None) is None:
                 raise KeyboardInterrupt
-        with mock.patch.multiple(p, config=lambda: dict(p.DEFAULTS, client_id="1"), single=lambda: None,
-                                 announce_state_dir=lambda: None), \
+        with mock.patch.multiple(p, config=lambda: dict(p.DEFAULTS, client_id="1", **(conf or {})), single=lambda: None,
+                                 announce_state_dir=lambda: None, gaming=lambda: gaming), \
                 mock.patch.object(p.Presence, "build", lambda self, now: build()), \
                 mock.patch.object(p.Link, "update", lambda self, a, now: fake_update(a, now)), \
                 mock.patch("time.sleep", sleep), mock.patch("time.monotonic", return_value=42.0), \
@@ -1182,6 +1182,27 @@ class Main(unittest.TestCase):
             raise ValueError("битый файл")
         calls = self.loop(build, lambda a, now: None)
         self.assertEqual(calls, [(None, 42.0)])         # после FAILS_CLEAR сбоев — один раз снять карточку
+
+    def test_game_hides_card(self):
+        calls = self.loop(lambda: ({"state": "x"}, "thinking"), lambda a, now: None, polls=1, gaming=True)
+        self.assertEqual({a for a, _ in calls}, {None})
+        calls = self.loop(lambda: ({"state": "x"}, "thinking"), lambda a, now: None, polls=1, gaming=True,
+                          conf={"hide_in_games": False})
+        self.assertEqual([a for a, _ in calls], [{"state": "x"}] * 2)
+
+    def test_gaming_reads_gamemode(self):
+        def run(out=None, exc=None):
+            def fake(*a, **kw):
+                if exc:
+                    raise exc
+                return mock.Mock(stdout=out)
+            with mock.patch("subprocess.run", fake):
+                return p.gaming()
+        self.assertTrue(run("i 2\n"))
+        self.assertFalse(run("i 0\n"))
+        self.assertFalse(run(""))                       # gamemoded не запущен: busctl молчит в stdout
+        self.assertFalse(run(exc=FileNotFoundError()))  # нет busctl
+        self.assertFalse(run(exc=subprocess.TimeoutExpired("busctl", 2)))
 
     def test_pauses_use_monotonic_clock(self):
         calls = self.loop(lambda: ({"state": "x"}, "thinking"), lambda a, now: None, polls=1)

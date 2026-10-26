@@ -8,7 +8,7 @@
 """
 __version__ = "0.2.0"
 
-import datetime, glob, json, os, random, re, select, shutil, socket, stat, struct, sys, time, unicodedata, uuid
+import datetime, glob, json, os, random, re, select, shutil, socket, stat, struct, subprocess, sys, time, unicodedata, uuid
 
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or HOME + "/.config", "claude-desktop-presence")
@@ -62,7 +62,7 @@ ELLIPSIS = {"thinking", "coding", "compacting", "background"}
 STATUS_DISPLAY = {"name": 0, "state": 1, "details": 2}
 
 DEFAULTS = {"client_id": "", "image": "claude", "image_text": "Claude", "words": "words.txt", "hide": "hide.txt",
-            "status_display": "name", "state_icons": False, "labels": {}, "buttons": [], "title_no_chat": "Main menu", "title_cloud": "Cloud session",
+            "status_display": "name", "state_icons": False, "hide_in_games": True, "labels": {}, "buttons": [], "title_no_chat": "Main menu", "title_cloud": "Cloud session",
             "title_private": "Private session", "title_untitled": "Untitled"}
 
 
@@ -1005,6 +1005,18 @@ class Link:
         return note + ("→ " + (activity.get("state") or t("без состояния", "no state")) if activity else t("→ пусто", "→ empty"))
 
 
+def gaming():
+    """Идёт игра под GameMode (gamemoderun). Discord показывает одну игру с компьютера, и карточка
+    вытесняла бы найденную им игру. Нет busctl или gamemoded — не игра; сам gamemoded не запускать."""
+    try:
+        out = subprocess.run(["busctl", "--user", "--auto-start=no", "get-property", "com.feralinteractive.GameMode",
+                              "/com/feralinteractive/GameMode", "com.feralinteractive.GameMode", "ClientCount"],
+                             capture_output=True, text=True, timeout=2).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return len(out) == 2 and out[1].isdecimal() and int(out[1]) > 0
+
+
 def failure(e):
     """Ошибка для лога без её текста: в тексте бывает название чата. Тип, файл и строка кода."""
     tb = e.__traceback__
@@ -1042,7 +1054,7 @@ def main():
     while True:
         cache_tick()
         try:
-            activity, _ = presence.build(time.time())
+            activity, _ = (None, None) if conf["hide_in_games"] and gaming() else presence.build(time.time())
             msg, fails = link.update(activity, time.monotonic()), 0     # паузы — по монотонным часам
         except InvalidClient as e:
             print(t(f"Discord: {e}, проверь client_id в config.toml", f"Discord: {e}, check client_id in config.toml"), file=sys.stderr)

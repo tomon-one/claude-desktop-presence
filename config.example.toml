@@ -14,6 +14,10 @@ status_display = "name"
 # с ключами по именам файлов (thinking, coding, choice, permission, done, waiting, error, compacting, nochat, background).
 state_icons = false
 
+# Прятать карточку, пока игра запущена через gamemoderun: Discord показывает одну игру с компьютера,
+# и карточка заняла бы место игры.
+hide_in_games = true
+
 # До двух кнопок в карточке, только https. Себе Discord их не показывает, их видят другие.
 # buttons = [{ label = "GitHub", url = "https://github.com/tomon-one/claude-desktop-presence" }]
 
