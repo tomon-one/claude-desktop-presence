@@ -6,6 +6,8 @@
 
 *[Русская версия](README.md)*
 
+> **This project is no longer maintained.** The author stopped using it, and the repository is archived as it is. The code stays open under the MIT license: feel free to fork it and carry it on.
+
 ![The card in a Discord profile](docs/card.png)
 
 ---
